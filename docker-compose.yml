@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  forecasting:
+    build: .
+    container_name: contact-forecasting
+    ports:
+      - "8501:8501"
+    volumes:
+      # Persistent data storage
+      - ./data:/app/data
+      # Optional: Mount your historical data
+      # - ./your_data.xlsx:/app/your_data.xlsx
+    restart: unless-stopped
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Add nginx reverse proxy
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: forecasting-nginx
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - forecasting
+  #   restart: unless-stopped
+
+# Optional: Define network
+# networks:
+#   forecasting-network:
+#     driver: bridge
+
+# Optional: Define volumes for better data persistence
+# volumes:
+#   forecast-data:
+#     driver: local
