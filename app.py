@@ -570,11 +570,26 @@ def show_summary_report():
     forecaster = st.session_state.forecaster
     channels = list(forecaster.models.keys())
     
+    # Safety check: Ensure forecasts have been generated
+    if not forecaster.forecasts or len(forecaster.forecasts) == 0:
+        st.info("ℹ️ **No forecasts generated yet**")
+        st.write("**How to generate forecasts:**")
+        st.write("1. ✅ Upload historical data (Done)")
+        st.write("2. ✅ Train models (Done)")
+        st.write("3. 📊 Go to the **'Forecast'** tab")
+        st.write("4. 📈 Click **'Generate Forecast'** for each channel")
+        st.write("5. 🔄 Come back here to view the summary")
+        return
+    
     st.subheader("🎯 Forecast Overview")
     
     summary_data = []
     
     for channel in channels:
+        # Skip if no forecast exists for this channel
+        if channel not in forecaster.forecasts or forecaster.forecasts[channel] is None:
+            continue
+            
         historical = forecaster.historical_data[
             forecaster.historical_data['Channel'] == channel
         ]
@@ -602,6 +617,12 @@ def show_summary_report():
             '15-Month Total': f"{forecast_total:,.0f}"
         })
     
+    # Check if we have any valid summary data
+    if not summary_data:
+        st.warning("⚠️ No forecast data available to display.")
+        st.write("Please generate forecasts for at least one channel first.")
+        return
+    
     summary_df = pd.DataFrame(summary_data)
     st.dataframe(summary_df, use_container_width=True)
     
@@ -613,9 +634,17 @@ def show_summary_report():
     
     comparison_data = []
     for channel in channels:
+        # Skip if no forecast exists for this channel
+        if channel not in forecaster.forecasts or forecaster.forecasts[channel] is None:
+            continue
         forecast = forecaster.forecasts[channel]
         total = forecast['yhat'].sum()
         comparison_data.append({'Channel': channel, 'Total Forecast Volume': total})
+    
+    # Check if we have comparison data
+    if not comparison_data:
+        st.warning("⚠️ No forecast data available for comparison.")
+        return
     
     comparison_df = pd.DataFrame(comparison_data)
     
@@ -641,6 +670,9 @@ def show_summary_report():
             
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                 for channel in channels:
+                    # Skip if no forecast exists
+                    if channel not in forecaster.forecasts or forecaster.forecasts[channel] is None:
+                        continue
                     forecast = forecaster.forecasts[channel][['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
                     forecast.columns = ['Date', 'Forecast', 'Lower Bound', 'Upper Bound']
                     forecast.to_excel(writer, sheet_name=channel, index=False)
