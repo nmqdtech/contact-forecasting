@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+
+# Python
+__pycache__
+*.py[cod]
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Deployment configs
+docker-compose.yml
+nginx.conf.template
+Procfile
+railway.json
+
+# Data
+data/
+*.log
