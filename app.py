@@ -207,17 +207,50 @@ def main():
                     st.markdown('<span class="feature-badge badge-volumes">📅 Monthly Targets</span>', unsafe_allow_html=True)
             
             if st.button("🚀 Train All Models", type="primary", use_container_width=True):
-                with st.spinner("Training models... This may take a minute."):
+                with st.spinner("Training models and generating forecasts..."):
                     progress_bar = st.progress(0)
+                    success_count = 0
+                    error_count = 0
+                    errors = []
+                    
                     for i, channel in enumerate(channels):
-                        success, msg = st.session_state.forecaster.train_model(channel)
-                        if success:
-                            st.session_state.forecaster.generate_forecast(channel, months_ahead=15)
+                        # Train model
+                        train_success, train_msg = st.session_state.forecaster.train_model(channel)
+                        
+                        if train_success:
+                            # Generate forecast immediately after training
+                            forecast_df, forecast_msg = st.session_state.forecaster.generate_forecast(channel, months_ahead=15)
+                            
+                            if forecast_df is not None:
+                                success_count += 1
+                            else:
+                                error_count += 1
+                                errors.append(f"{channel}: {forecast_msg}")
+                        else:
+                            error_count += 1
+                            errors.append(f"{channel}: {train_msg}")
+                        
                         progress_bar.progress((i + 1) / len(channels))
                     
                     st.session_state.models_trained = True
-                    st.success("✅ All models trained successfully!")
-                    st.rerun()
+                    
+                    # Show results
+                    if success_count > 0:
+                        st.success(f"✅ Successfully trained and generated forecasts for {success_count}/{len(channels)} channels!")
+                    
+                    if error_count > 0:
+                        st.warning(f"⚠️ {error_count} channels had errors:")
+                        for error in errors:
+                            st.error(error)
+                    
+                    # Debug info
+                    st.info(f"📊 Forecasts in memory: {len(st.session_state.forecaster.forecasts)}")
+                    if st.session_state.forecaster.forecasts:
+                        st.write("Available forecasts:", list(st.session_state.forecaster.forecasts.keys()))
+                        st.success("✅ You can now view forecasts in the tabs below!")
+                        st.info("👇 Scroll down to see the 'Forecasts' tab")
+                    
+                    # Don't rerun - let user see the results and navigate naturally
         
         st.divider()
         
@@ -254,6 +287,18 @@ def main():
         )
         
     else:
+        # Debug section - show current state
+        with st.expander("🐛 Debug Info (Click to expand)", expanded=False):
+            st.write("**Models trained:**", len(st.session_state.forecaster.models))
+            st.write("**Model channels:**", list(st.session_state.forecaster.models.keys()) if st.session_state.forecaster.models else [])
+            st.write("**Forecasts generated:**", len(st.session_state.forecaster.forecasts))
+            st.write("**Forecast channels:**", list(st.session_state.forecaster.forecasts.keys()) if st.session_state.forecaster.forecasts else [])
+            
+            if st.session_state.forecaster.forecasts:
+                for channel, forecast in st.session_state.forecaster.forecasts.items():
+                    if forecast is not None:
+                        st.write(f"  - {channel}: {len(forecast)} rows, from {forecast['ds'].min()} to {forecast['ds'].max()}")
+        
         # Create tabs
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📈 Forecasts", 
@@ -284,11 +329,29 @@ def show_forecasts():
     st.header("15-Month Rolling Forecast")
     
     forecaster = st.session_state.forecaster
+    
+    # Check if models are trained
+    if not forecaster.models:
+        st.warning("⚠️ No models trained yet. Please train models first.")
+        return
+    
     channels = list(forecaster.models.keys())
+    
+    # Check if forecasts exist
+    if not forecaster.forecasts or len(forecaster.forecasts) == 0:
+        st.warning("⚠️ No forecasts generated yet.")
+        st.info("Forecasts should be generated automatically after training. If you see this message, please retrain your models.")
+        return
     
     selected_channel = st.selectbox("Select Channel", channels)
     
     if selected_channel:
+        # Check if forecast exists for this specific channel
+        if selected_channel not in forecaster.forecasts or forecaster.forecasts[selected_channel] is None:
+            st.error(f"❌ No forecast available for {selected_channel}")
+            st.info("Please retrain models or generate forecast manually.")
+            return
+        
         # Show active features for this channel
         features = []
         if selected_channel in st.session_state.bank_holidays_configured:
