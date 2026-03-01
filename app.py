@@ -1,208 +1,313 @@
 """
-Interactive Contact Volume Forecasting Dashboard - Enhanced Version
-Features:
-- Bank holiday configuration per channel
-- Monthly volume input from client
-- Smart daily distribution
-- Dark/Light theme toggle
+Contact Volume Forecasting Dashboard
 """
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
-import os
 from forecasting_engine import ContactForecaster
 
-# Page configuration
 st.set_page_config(
-    page_title="Contact Volume Forecasting System",
+    page_title="Contact Volume Forecasting",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # ---------------------------------------------------------------------------
-# CSS Theme Definitions
+# Theme CSS
 # ---------------------------------------------------------------------------
 
-LIGHT_CSS = """
+def get_css(theme: str) -> str:
+    dark = theme == "dark"
+
+    bg        = "#0F172A" if dark else "#F8FAFC"
+    surface   = "#1E293B" if dark else "#FFFFFF"
+    surface2  = "#162032" if dark else "#F1F5F9"
+    border    = "#2D3E52" if dark else "#E2E8F0"
+    text      = "#E2E8F0" if dark else "#1E293B"
+    text2     = "#94A3B8" if dark else "#64748B"
+    accent    = "#3B82F6" if dark else "#2563EB"
+    shadow    = "rgba(0,0,0,0.35)" if dark else "rgba(0,0,0,0.07)"
+
+    return f"""
 <style>
-    .stApp {
-        background-color: #F8FAFC;
-    }
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #E2E8F0;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #F1F5F9;
-        border-radius: 8px;
-        padding: 4px;
-        gap: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 6px;
-        font-weight: 500;
-        padding: 6px 16px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #FFFFFF !important;
-        color: #2563EB !important;
-    }
-    [data-testid="metric-container"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-    .main-header-banner {
-        background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
-        color: white;
-        padding: 2rem 2.5rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 20px rgba(37,99,235,0.25);
-    }
-    .main-header-banner h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 0 0 0.4rem 0;
-        color: white;
-    }
-    .main-header-banner p {
-        font-size: 1rem;
-        margin: 0;
-        color: rgba(255,255,255,0.88);
-    }
-    .kpi-card {
-        background: #FFFFFF;
-        border-radius: 12px;
-        padding: 1.25rem 1.5rem;
-        border-left: 4px solid #2563EB;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-        margin-bottom: 1rem;
-    }
-    .section-label {
-        font-size: 0.68rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #94A3B8;
-        margin: 1.2rem 0 0.4rem 0;
-    }
-    .feature-badge {
-        display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 1rem;
-        font-size: 0.875rem;
-        font-weight: 600;
-        margin: 0.25rem;
-    }
-    .badge-holidays { background-color: #F59E0B; color: white; }
-    .badge-volumes  { background-color: #059669; color: white; }
+/* ── Base ── */
+html, body, [data-testid="stAppViewContainer"], .stApp {{
+    background-color: {bg} !important;
+    color: {text} !important;
+}}
+[data-testid="stHeader"] {{
+    background-color: {bg} !important;
+    border-bottom: 1px solid {border};
+}}
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] > div:first-child {{
+    background-color: {surface} !important;
+    border-right: 1px solid {border};
+}}
+[data-testid="stSidebar"] * {{
+    color: {text} !important;
+}}
+[data-testid="stSidebar"] label {{
+    color: {text2} !important;
+}}
+
+/* ── Main block ── */
+[data-testid="block-container"],
+[data-testid="stMainBlockContainer"] {{
+    background-color: {bg} !important;
+}}
+.main .block-container {{
+    padding-top: 1rem;
+}}
+
+/* ── Text ── */
+p, li, span, div {{
+    color: {text};
+}}
+h1, h2, h3, h4, h5, h6 {{
+    color: {text} !important;
+}}
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] span {{
+    color: {text} !important;
+}}
+label {{
+    color: {text2} !important;
+    font-size: 0.85rem;
+}}
+
+/* ── Metric cards ── */
+[data-testid="metric-container"] {{
+    background-color: {surface} !important;
+    border: 1px solid {border} !important;
+    border-radius: 12px !important;
+    padding: 1rem 1.25rem !important;
+    box-shadow: 0 1px 4px {shadow} !important;
+}}
+[data-testid="stMetricValue"] {{
+    color: {text} !important;
+    font-size: 1.6rem !important;
+    font-weight: 700 !important;
+}}
+[data-testid="stMetricLabel"] {{
+    color: {text2} !important;
+    font-size: 0.8rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}}
+[data-testid="stMetricDelta"] {{
+    font-size: 0.85rem !important;
+}}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {{
+    background-color: {surface2} !important;
+    border-radius: 10px;
+    padding: 3px;
+    gap: 2px;
+    border: 1px solid {border};
+}}
+.stTabs [data-baseweb="tab"] {{
+    border-radius: 7px !important;
+    padding: 6px 18px !important;
+    color: {text2} !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    background-color: transparent !important;
+    border: none !important;
+}}
+.stTabs [aria-selected="true"] {{
+    background-color: {surface} !important;
+    color: {accent} !important;
+    box-shadow: 0 1px 3px {shadow} !important;
+}}
+.stTabs [data-baseweb="tab-highlight"] {{
+    display: none;
+}}
+.stTabs [data-baseweb="tab-border"] {{
+    display: none;
+}}
+
+/* ── Buttons ── */
+.stButton > button {{
+    background-color: {surface} !important;
+    color: {text} !important;
+    border: 1px solid {border} !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 0.15s ease;
+}}
+.stButton > button:hover {{
+    border-color: {accent} !important;
+    color: {accent} !important;
+}}
+.stButton > button[kind="primary"] {{
+    background-color: {accent} !important;
+    color: #FFFFFF !important;
+    border-color: {accent} !important;
+}}
+.stButton > button[kind="primary"]:hover {{
+    filter: brightness(1.1);
+}}
+
+/* ── Inputs ── */
+[data-baseweb="select"] > div,
+[data-baseweb="input"],
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+.stTextInput input,
+.stNumberInput input {{
+    background-color: {surface} !important;
+    border-color: {border} !important;
+    color: {text} !important;
+    border-radius: 8px !important;
+}}
+[data-baseweb="select"] svg {{
+    fill: {text2} !important;
+}}
+[data-baseweb="popover"] [data-baseweb="menu"] {{
+    background-color: {surface} !important;
+    border: 1px solid {border} !important;
+}}
+[data-baseweb="popover"] li {{
+    background-color: {surface} !important;
+    color: {text} !important;
+}}
+[data-baseweb="popover"] li:hover {{
+    background-color: {surface2} !important;
+}}
+
+/* ── File uploader ── */
+[data-testid="stFileUploaderDropzone"] {{
+    background-color: {surface2} !important;
+    border: 2px dashed {border} !important;
+    border-radius: 10px !important;
+}}
+
+/* ── Expanders ── */
+[data-testid="stExpander"] {{
+    background-color: {surface} !important;
+    border: 1px solid {border} !important;
+    border-radius: 10px !important;
+}}
+[data-testid="stExpander"] summary {{
+    color: {text} !important;
+}}
+details > summary {{
+    color: {text} !important;
+    font-weight: 500;
+}}
+
+/* ── Alerts / info boxes ── */
+[data-testid="stAlert"] {{
+    background-color: {surface} !important;
+    border-radius: 10px !important;
+    border: 1px solid {border} !important;
+}}
+[data-testid="stAlert"] p {{
+    color: {text} !important;
+}}
+
+/* ── Progress bar ── */
+.stProgress > div > div {{
+    background-color: {accent} !important;
+}}
+
+/* ── Checkbox ── */
+[data-testid="stCheckbox"] p {{
+    color: {text} !important;
+}}
+
+/* ── Divider ── */
+hr {{
+    border-color: {border} !important;
+    opacity: 0.6;
+}}
+
+/* ── DataFrames ── */
+[data-testid="stDataFrame"] {{
+    border: 1px solid {border} !important;
+    border-radius: 10px !important;
+}}
+
+/* ── Custom classes ── */
+.header-banner {{
+    background: linear-gradient(135deg, #1D4ED8 0%, #6D28D9 100%);
+    padding: 1.75rem 2rem;
+    border-radius: 14px;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 24px rgba(29,78,216,0.3);
+}}
+.header-banner h1 {{
+    color: white !important;
+    font-size: 1.85rem !important;
+    font-weight: 700 !important;
+    margin: 0 0 0.3rem 0 !important;
+}}
+.header-banner p {{
+    color: rgba(255,255,255,0.82) !important;
+    font-size: 0.95rem !important;
+    margin: 0 !important;
+}}
+.section-label {{
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: {text2};
+    margin: 1.5rem 0 0.5rem 0;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid {border};
+}}
+.accuracy-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background-color: {surface};
+    border: 1px solid {border};
+    border-radius: 8px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.8rem;
+    color: {text2};
+    margin-bottom: 0.75rem;
+}}
+.feature-badge {{
+    display: inline-block;
+    padding: 0.2rem 0.65rem;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin: 0.15rem;
+}}
+.badge-holidays {{ background: #D97706; color: white; }}
+.badge-volumes  {{ background: #047857; color: white; }}
 </style>
 """
 
-DARK_CSS = """
-<style>
-    .stApp {
-        background-color: #0F172A;
-    }
-    [data-testid="stSidebar"] {
-        background-color: #1E293B;
-        border-right: 1px solid #334155;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #1E293B;
-        border-radius: 8px;
-        padding: 4px;
-        gap: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 6px;
-        font-weight: 500;
-        padding: 6px 16px;
-        color: #94A3B8;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #0F172A !important;
-        color: #3B82F6 !important;
-    }
-    [data-testid="metric-container"] {
-        background-color: #1E293B;
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    }
-    .main-header-banner {
-        background: linear-gradient(135deg, #1D4ED8 0%, #6D28D9 100%);
-        color: white;
-        padding: 2rem 2.5rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 20px rgba(29,78,216,0.4);
-    }
-    .main-header-banner h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 0 0 0.4rem 0;
-        color: white;
-    }
-    .main-header-banner p {
-        font-size: 1rem;
-        margin: 0;
-        color: rgba(255,255,255,0.82);
-    }
-    .kpi-card {
-        background: #1E293B;
-        border-radius: 12px;
-        padding: 1.25rem 1.5rem;
-        border-left: 4px solid #3B82F6;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        margin-bottom: 1rem;
-    }
-    .section-label {
-        font-size: 0.68rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #475569;
-        margin: 1.2rem 0 0.4rem 0;
-    }
-    .feature-badge {
-        display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 1rem;
-        font-size: 0.875rem;
-        font-weight: 600;
-        margin: 0.25rem;
-    }
-    .badge-holidays { background-color: #D97706; color: white; }
-    .badge-volumes  { background-color: #047857; color: white; }
-</style>
-"""
 
-CHART_COLORS = ['#2563EB', '#7C3AED', '#059669', '#F59E0B', '#EF4444']
-CHART_FONT = dict(family="Inter, sans-serif", size=13)
+CHART_COLORS = ['#2563EB', '#7C3AED', '#059669', '#F59E0B', '#EF4444', '#EC4899']
+CHART_FONT   = dict(family="Inter, system-ui, sans-serif", size=12)
 
 # ---------------------------------------------------------------------------
-# Session state initialisation
+# Session state
 # ---------------------------------------------------------------------------
 
 if 'forecaster' not in st.session_state:
-    st.session_state.forecaster = ContactForecaster()
-    st.session_state.data_loaded = False
-    st.session_state.models_trained = False
+    st.session_state.forecaster               = ContactForecaster()
+    st.session_state.data_loaded              = False
+    st.session_state.models_trained           = False
     st.session_state.bank_holidays_configured = {}
     st.session_state.monthly_volumes_configured = {}
 
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -210,741 +315,641 @@ if 'theme' not in st.session_state:
 
 def main():
     theme = st.session_state.theme
+    st.markdown(get_css(theme), unsafe_allow_html=True)
+    plotly_tpl = 'plotly_dark' if theme == 'dark' else 'plotly_white'
 
-    # Inject theme CSS
-    if theme == 'dark':
-        st.markdown(DARK_CSS, unsafe_allow_html=True)
-        plotly_template = 'plotly_dark'
-    else:
-        st.markdown(LIGHT_CSS, unsafe_allow_html=True)
-        plotly_template = 'plotly_white'
-
-    # Gradient header banner
+    # Header banner
     st.markdown("""
-    <div class="main-header-banner">
-        <h1>📊 Contact Volume Forecasting System</h1>
-        <p>AI-Powered 15-Month Rolling Forecast · Bank Holidays · Client Volume Targets</p>
+    <div class="header-banner">
+        <h1>📊 Contact Volume Forecasting</h1>
+        <p>AI-powered 15-month rolling forecast · seasonal adjustment · bank holidays · client targets</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # -----------------------------------------------------------------------
-    # Sidebar
-    # -----------------------------------------------------------------------
+    # ── Sidebar ──────────────────────────────────────────────────────────────
     with st.sidebar:
-        # Theme toggle — always at the top
-        if theme == 'light':
-            if st.button('🌙 Dark Mode', use_container_width=True):
-                st.session_state.theme = 'dark'
-        else:
-            if st.button('☀️ Light Mode', use_container_width=True):
-                st.session_state.theme = 'light'
+        col_l, col_r = st.columns([1, 1])
+        with col_l:
+            if theme == 'light':
+                if st.button("🌙 Dark", use_container_width=True):
+                    st.session_state.theme = 'dark'
+            else:
+                if st.button("☀️ Light", use_container_width=True):
+                    st.session_state.theme = 'light'
+        with col_r:
+            st.markdown(f"<p style='font-size:0.75rem;color:#94A3B8;margin-top:0.45rem'>{'Dark mode' if theme=='dark' else 'Light mode'}</p>",
+                        unsafe_allow_html=True)
 
-        st.markdown('<div class="section-label">Configuration</div>', unsafe_allow_html=True)
-
-        st.subheader("1️⃣ Upload Historical Data")
+        # ── 1. Data upload ───────────────────────────────────────────────────
+        st.markdown('<div class="section-label">1 · Historical Data</div>', unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
-            "Upload Excel file with historical data",
+            "Excel file (Date, Channel, Volume)",
             type=['xlsx', 'xls'],
-            help="Required columns: Date, Channel, Volume"
+            label_visibility="collapsed",
         )
-
-        if uploaded_file is not None:
-            temp_path = f"/tmp/{uploaded_file.name}"
-            with open(temp_path, "wb") as f:
+        if uploaded_file:
+            tmp = f"/tmp/{uploaded_file.name}"
+            with open(tmp, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-
-            success, msg = st.session_state.forecaster.load_data(temp_path)
-            if success:
+            ok, msg = st.session_state.forecaster.load_data(tmp)
+            if ok:
                 st.success(msg)
                 st.session_state.data_loaded = True
             else:
                 st.error(msg)
 
-        st.divider()
-
-        if st.session_state.data_loaded:
+        if not st.session_state.data_loaded:
+            st.markdown('<div class="section-label">2 · Configure</div>', unsafe_allow_html=True)
+            st.caption("Upload data first")
+        else:
             channels = st.session_state.forecaster.historical_data['Channel'].unique()
-            st.info(f"✅ Detected {len(channels)} channels")
+            df_hist  = st.session_state.forecaster.historical_data
+            date_min = df_hist['Date'].min().strftime('%d %b %Y')
+            date_max = df_hist['Date'].max().strftime('%d %b %Y')
+            st.info(f"**{len(channels)} channels** · {date_min} → {date_max}")
 
-            # Bank Holidays Configuration
-            with st.expander("🏖️ **Bank Holidays Configuration**", expanded=False):
-                st.markdown("**Configure which channels should respect bank holidays**")
+            # ── 2. Configure ─────────────────────────────────────────────────
+            st.markdown('<div class="section-label">2 · Configure (optional)</div>',
+                        unsafe_allow_html=True)
 
-                countries = st.session_state.forecaster.get_available_countries()
-
-                st.markdown("##### Select Country")
+            with st.expander("🏖️ Bank Holidays", expanded=False):
+                countries   = st.session_state.forecaster.get_available_countries()
                 country_code = st.selectbox(
-                    "Country for bank holidays",
+                    "Country",
                     options=list(countries.keys()),
                     format_func=lambda x: f"{countries[x]} ({x})",
-                    key="country_selector"
+                    key="country_selector",
                 )
-
-                st.markdown("##### Select Channels")
-                st.markdown("*Choose channels that should have zero volume on bank holidays*")
-
-                for channel in channels:
-                    apply_holidays = st.checkbox(
-                        f"{channel}",
-                        value=channel in st.session_state.bank_holidays_configured,
-                        key=f"holiday_{channel}"
-                    )
-
-                    if apply_holidays:
-                        st.session_state.bank_holidays_configured[channel] = country_code
-                        st.session_state.forecaster.configure_bank_holidays(channel, country_code)
-                    elif channel in st.session_state.bank_holidays_configured:
-                        del st.session_state.bank_holidays_configured[channel]
-
+                for ch in channels:
+                    if st.checkbox(ch, value=ch in st.session_state.bank_holidays_configured,
+                                   key=f"hol_{ch}"):
+                        st.session_state.bank_holidays_configured[ch] = country_code
+                        st.session_state.forecaster.configure_bank_holidays(ch, country_code)
+                    elif ch in st.session_state.bank_holidays_configured:
+                        del st.session_state.bank_holidays_configured[ch]
                 if st.session_state.bank_holidays_configured:
-                    st.success(f"✅ {len(st.session_state.bank_holidays_configured)} channel(s) configured")
+                    st.caption(f"✅ {len(st.session_state.bank_holidays_configured)} channel(s)")
 
-            # Monthly Volumes Configuration
-            with st.expander("📅 **Monthly Volume Targets** (Optional)", expanded=False):
-                st.markdown("**Provide monthly volumes from your client**")
-                st.markdown("*These will override AI predictions and be distributed daily*")
-
-                selected_channel = st.selectbox(
-                    "Select Channel",
-                    options=channels,
-                    key="monthly_channel_selector"
-                )
-
-                st.markdown("##### Enter Monthly Volumes")
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    start_month = st.date_input(
-                        "Start Month",
-                        value=datetime(2026, 3, 1),
-                        key="start_month"
-                    )
-
-                with col2:
-                    num_months = st.number_input(
-                        "Number of Months",
-                        min_value=1,
-                        max_value=15,
-                        value=3,
-                        key="num_months"
-                    )
-
-                # Create input fields for each month
-                monthly_data = {}
-                st.markdown("**Monthly Volumes:**")
-
-                for i in range(int(num_months)):
-                    month_date = start_month + pd.DateOffset(months=i)
-                    month_str = month_date.strftime('%Y-%m')
-                    month_display = month_date.strftime('%B %Y')
-
-                    volume = st.number_input(
-                        month_display,
-                        min_value=0,
-                        value=0,
-                        step=1000,
-                        key=f"monthly_vol_{selected_channel}_{i}"
-                    )
-
-                    if volume > 0:
-                        monthly_data[month_str] = volume
-
-                if st.button("💾 Save Monthly Volumes", key="save_monthly"):
-                    if monthly_data:
-                        st.session_state.forecaster.set_monthly_volumes(selected_channel, monthly_data)
-                        st.session_state.monthly_volumes_configured[selected_channel] = monthly_data
-                        st.success(f"✅ Saved {len(monthly_data)} month(s) for {selected_channel}")
+            with st.expander("📅 Monthly Volume Targets", expanded=False):
+                sel_ch = st.selectbox("Channel", channels, key="mv_ch")
+                c1, c2 = st.columns(2)
+                with c1:
+                    start_m = st.date_input("Start", datetime(2026, 3, 1), key="mv_start")
+                with c2:
+                    n_months = st.number_input("Months", 1, 15, 3, key="mv_n")
+                mv = {}
+                for i in range(int(n_months)):
+                    md_date = start_m + pd.DateOffset(months=i)
+                    v = st.number_input(md_date.strftime('%b %Y'), 0, step=1000,
+                                        key=f"mv_{sel_ch}_{i}")
+                    if v > 0:
+                        mv[md_date.strftime('%Y-%m')] = v
+                if st.button("💾 Save", key="mv_save", use_container_width=True):
+                    if mv:
+                        st.session_state.forecaster.set_monthly_volumes(sel_ch, mv)
+                        st.session_state.monthly_volumes_configured[sel_ch] = mv
+                        st.success(f"Saved {len(mv)} month(s)")
                     else:
                         st.warning("No volumes entered")
-
-                # Show configured channels
                 if st.session_state.monthly_volumes_configured:
-                    st.markdown("**Configured Channels:**")
                     for ch, data in st.session_state.monthly_volumes_configured.items():
-                        st.info(f"✅ {ch}: {len(data)} month(s)")
+                        st.caption(f"✅ {ch}: {len(data)} months")
 
-            st.divider()
+            # ── 3. Train ──────────────────────────────────────────────────────
+            st.markdown('<div class="section-label">3 · Train Models</div>',
+                        unsafe_allow_html=True)
 
-            st.subheader("2️⃣ Train Models")
-
-            # Show active features
-            if st.session_state.bank_holidays_configured or st.session_state.monthly_volumes_configured:
-                st.markdown("**Active Features:**")
-                if st.session_state.bank_holidays_configured:
-                    st.markdown('<span class="feature-badge badge-holidays">🏖️ Bank Holidays</span>', unsafe_allow_html=True)
-                if st.session_state.monthly_volumes_configured:
-                    st.markdown('<span class="feature-badge badge-volumes">📅 Monthly Targets</span>', unsafe_allow_html=True)
+            active = []
+            if st.session_state.bank_holidays_configured:
+                active.append('<span class="feature-badge badge-holidays">🏖️ Holidays</span>')
+            if st.session_state.monthly_volumes_configured:
+                active.append('<span class="feature-badge badge-volumes">📅 Targets</span>')
+            if active:
+                st.markdown(" ".join(active), unsafe_allow_html=True)
 
             if st.button("🚀 Train All Models", type="primary", use_container_width=True):
-                with st.spinner("Training models and generating forecasts..."):
-                    progress_bar = st.progress(0)
-                    success_count = 0
-                    error_count = 0
-                    errors = []
-
-                    for i, channel in enumerate(channels):
-                        train_success, train_msg = st.session_state.forecaster.train_model(channel)
-
-                        if train_success:
-                            forecast_df, forecast_msg = st.session_state.forecaster.generate_forecast(channel, months_ahead=15)
-
-                            if forecast_df is not None:
-                                success_count += 1
+                with st.spinner("Training models…"):
+                    bar = st.progress(0)
+                    ok_n, err_n, errors = 0, 0, []
+                    for i, ch in enumerate(channels):
+                        ts, tm = st.session_state.forecaster.train_model(ch)
+                        if ts:
+                            fd, fm = st.session_state.forecaster.generate_forecast(ch, 15)
+                            if fd is not None:
+                                ok_n += 1
                             else:
-                                error_count += 1
-                                errors.append(f"{channel}: {forecast_msg}")
+                                err_n += 1; errors.append(f"{ch}: {fm}")
                         else:
-                            error_count += 1
-                            errors.append(f"{channel}: {train_msg}")
-
-                        progress_bar.progress((i + 1) / len(channels))
-
+                            err_n += 1; errors.append(f"{ch}: {tm}")
+                        bar.progress((i + 1) / len(channels))
                     st.session_state.models_trained = True
+                if ok_n:
+                    st.success(f"✅ {ok_n}/{len(channels)} channels ready")
+                for e in errors:
+                    st.error(e)
 
-                    if success_count > 0:
-                        st.success(f"✅ Trained & forecasted {success_count}/{len(channels)} channels!")
+            # ── 4. Actuals ────────────────────────────────────────────────────
+            if st.session_state.models_trained:
+                st.markdown('<div class="section-label">4 · Blend Actuals (optional)</div>',
+                            unsafe_allow_html=True)
+                actuals_f = st.file_uploader("2026 actuals (Date, Channel, Volume)",
+                                             type=['xlsx', 'xls'], key="actuals_up",
+                                             label_visibility="collapsed")
+                if actuals_f:
+                    st.info("Uploaded — use the Forecasts tab to view blended view")
 
-                    if error_count > 0:
-                        st.warning(f"⚠️ {error_count} channels had errors:")
-                        for error in errors:
-                            st.error(error)
-
-                    st.info(f"📊 Forecasts in memory: {len(st.session_state.forecaster.forecasts)}")
-                    if st.session_state.forecaster.forecasts:
-                        st.success("✅ Navigate to the Forecasts tab below!")
-
-        st.divider()
-
-        if st.session_state.models_trained:
-            st.subheader("3️⃣ Update with Actuals (Optional)")
-            actuals_file = st.file_uploader(
-                "Upload 2026 actuals to recalculate forecast",
-                type=['xlsx', 'xls'],
-                help="Required columns: Date, Channel, Volume"
-            )
-
-            if actuals_file is not None:
-                st.info("Actuals uploaded - forecast will be recalculated")
-
-    # -----------------------------------------------------------------------
-    # Main content area
-    # -----------------------------------------------------------------------
+    # ── Main area ─────────────────────────────────────────────────────────────
     if not st.session_state.data_loaded:
-        st.info("👈 Please upload your historical data in the sidebar to get started")
-
-        st.subheader("📋 Expected Data Format")
-        example_df = pd.DataFrame({
-            'Date': pd.date_range('2024-01-01', periods=5, freq='D'),
-            'Channel': ['Calls', 'Emails', 'Chats', 'Messages', 'Calls'],
-            'Volume': [1250, 850, 430, 320, 1180]
-        })
-        st.dataframe(example_df, use_container_width=True)
-
+        _show_welcome()
     elif not st.session_state.models_trained:
-        st.info("👈 Configure features and train models in the sidebar")
-
-        st.subheader("📊 Data Preview")
-        st.dataframe(
-            st.session_state.forecaster.historical_data.head(20),
-            use_container_width=True
-        )
-
+        _show_data_preview(plotly_tpl)
     else:
-        with st.expander("Advanced Info", expanded=False):
-            st.write("**Models trained:**", len(st.session_state.forecaster.models))
-            st.write("**Model channels:**", list(st.session_state.forecaster.models.keys()) if st.session_state.forecaster.models else [])
-            st.write("**Forecasts generated:**", len(st.session_state.forecaster.forecasts))
-            st.write("**Forecast channels:**", list(st.session_state.forecaster.forecasts.keys()) if st.session_state.forecaster.forecasts else [])
-
-            if st.session_state.forecaster.forecasts:
-                for channel, forecast in st.session_state.forecaster.forecasts.items():
-                    if forecast is not None:
-                        st.write(f"  - {channel}: {len(forecast)} rows, {forecast['ds'].min().date()} → {forecast['ds'].max().date()}")
-
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📈 Forecasts",
             "📊 Week Comparison",
-            "🔍 Seasonality Analysis",
-            "🏖️ Bank Holidays View",
-            "📋 Summary Report"
+            "🔍 Seasonality",
+            "🏖️ Bank Holidays",
+            "📋 Summary & Export",
         ])
-
-        with tab1:
-            show_forecasts(plotly_template)
-
-        with tab2:
-            show_week_comparison(plotly_template)
-
-        with tab3:
-            show_seasonality_analysis(plotly_template)
-
-        with tab4:
-            show_bank_holidays_view()
-
-        with tab5:
-            show_summary_report(plotly_template)
+        with tab1: show_forecasts(plotly_tpl)
+        with tab2: show_week_comparison(plotly_tpl)
+        with tab3: show_seasonality_analysis(plotly_tpl)
+        with tab4: show_bank_holidays_view()
+        with tab5: show_summary_report(plotly_tpl)
 
 
 # ---------------------------------------------------------------------------
-# Tab: Forecasts
+# Welcome / data preview helpers
 # ---------------------------------------------------------------------------
 
-def show_forecasts(plotly_template='plotly_white'):
-    """Display forecast visualizations"""
-    st.header("15-Month Rolling Forecast")
+def _show_welcome():
+    st.info("👈 Upload your historical Excel file in the sidebar to get started.")
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        st.subheader("Expected format")
+        st.dataframe(pd.DataFrame({
+            'Date':    pd.date_range('2024-01-01', 5, freq='D'),
+            'Channel': ['Calls', 'Emails', 'Chats', 'Messages', 'Calls'],
+            'Volume':  [1250, 850, 430, 320, 1180],
+        }), use_container_width=True)
+    with c2:
+        st.subheader("What this app does")
+        st.markdown("""
+- **Two-stage forecasting**: weekly Holt-Winters + monthly seasonal adjustment
+- Automatically selects best model via AIC (8 configurations tested)
+- Damped trend to prevent runaway long-range extrapolation
+- Simulation-based 95% confidence intervals
+- Bank holiday zeroing per channel/country
+- Client monthly volume target distribution
+- Backtest view to validate model accuracy
+""")
 
+
+def _show_data_preview(plotly_tpl):
+    forecaster = st.session_state.forecaster
+    df = forecaster.historical_data
+
+    st.info("👈 Configure options and train models in the sidebar.")
+
+    channels = df['Channel'].unique()
+    c1, c2, c3, c4 = st.columns(4)
+    for i, col in enumerate([c1, c2, c3, c4]):
+        if i < len(channels):
+            ch = channels[i]
+            avg = df[df['Channel'] == ch]['Volume'].mean()
+            col.metric(ch, f"{avg:,.0f}", "avg daily")
+
+    st.subheader("Monthly volumes by channel")
+    df2 = df.copy()
+    df2['Month'] = df2['Date'].dt.to_period('M').dt.to_timestamp()
+    monthly = df2.groupby(['Month', 'Channel'])['Volume'].sum().reset_index()
+    fig = px.line(monthly, x='Month', y='Volume', color='Channel',
+                  color_discrete_sequence=CHART_COLORS,
+                  title="Historical Monthly Volumes")
+    fig.update_layout(height=400, template=plotly_tpl, font=CHART_FONT,
+                      hovermode='x unified')
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("Raw data preview"):
+        st.dataframe(df.head(50), use_container_width=True)
+
+
+# ---------------------------------------------------------------------------
+# Tab 1 – Forecasts
+# ---------------------------------------------------------------------------
+
+def show_forecasts(plotly_tpl):
     forecaster = st.session_state.forecaster
 
     if not forecaster.models:
-        st.warning("⚠️ No models trained yet. Please train models first.")
+        st.warning("No models trained yet.")
+        return
+    if not forecaster.forecasts:
+        st.warning("No forecasts available — please retrain models.")
         return
 
     channels = list(forecaster.models.keys())
+    sel = st.selectbox("Channel", channels, key="fc_ch")
 
-    if not forecaster.forecasts or len(forecaster.forecasts) == 0:
-        st.warning("⚠️ No forecasts generated yet.")
-        st.info("Forecasts should be generated automatically after training. If you see this message, please retrain your models.")
+    if sel not in forecaster.forecasts or forecaster.forecasts[sel] is None:
+        st.error(f"No forecast for {sel}. Please retrain.")
         return
 
-    selected_channel = st.selectbox("Select Channel", channels)
+    historical = forecaster.historical_data[
+        forecaster.historical_data['Channel'] == sel
+    ].copy()
+    forecast = forecaster.forecasts[sel].copy()
 
-    if selected_channel:
-        if selected_channel not in forecaster.forecasts or forecaster.forecasts[selected_channel] is None:
-            st.error(f"❌ No forecast available for {selected_channel}")
-            st.info("Please retrain models or generate forecast manually.")
-            return
+    # ── Model info bar ────────────────────────────────────────────────────────
+    md = forecaster.models.get(sel, {})
+    cfg  = md.get('config', ('?', '?', '?'))
+    aic  = md.get('aic')
+    bt   = forecaster.get_backtest_metrics(sel, holdout_days=60)
+    mape_str = f"Backtest MAPE: {bt['MAPE']:.1f}%" if bt else "Backtest: n/a"
+    cfg_str  = f"trend={cfg[0]}, seasonal={cfg[1]}, damped={cfg[2]}"
+    aic_str  = f"AIC: {aic:.0f}" if aic else ""
 
-        # Show active features for this channel
-        features = []
-        if selected_channel in st.session_state.bank_holidays_configured:
-            country = st.session_state.bank_holidays_configured[selected_channel]
-            features.append(f"🏖️ Bank Holidays ({country})")
-        if selected_channel in st.session_state.monthly_volumes_configured:
-            num_months = len(st.session_state.monthly_volumes_configured[selected_channel])
-            features.append(f"📅 Monthly Targets ({num_months} months)")
+    feat_html = ""
+    if sel in st.session_state.bank_holidays_configured:
+        feat_html += f'<span class="feature-badge badge-holidays">🏖️ {st.session_state.bank_holidays_configured[sel]}</span>'
+    if sel in st.session_state.monthly_volumes_configured:
+        n = len(st.session_state.monthly_volumes_configured[sel])
+        feat_html += f'<span class="feature-badge badge-volumes">📅 {n}mo targets</span>'
 
-        if features:
-            st.info("**Active Features:** " + " | ".join(features))
-
-        historical = forecaster.historical_data[
-            forecaster.historical_data['Channel'] == selected_channel
-        ].copy()
-
-        forecast = forecaster.forecasts[selected_channel]
-
-        # Build chart
-        fig = go.Figure()
-
-        fig.add_trace(go.Scatter(
-            x=historical['Date'],
-            y=historical['Volume'],
-            mode='lines',
-            name='Historical',
-            line=dict(color='#2563EB', width=2)
-        ))
-
-        fig.add_trace(go.Scatter(
-            x=forecast['ds'],
-            y=forecast['yhat'],
-            mode='lines',
-            name='Forecast',
-            line=dict(color='#F59E0B', width=2, dash='dash')
-        ))
-
-        fig.add_trace(go.Scatter(
-            x=forecast['ds'].tolist() + forecast['ds'].tolist()[::-1],
-            y=forecast['yhat_upper'].tolist() + forecast['yhat_lower'].tolist()[::-1],
-            fill='toself',
-            fillcolor='rgba(245,158,11,0.15)',
-            line=dict(color='rgba(255,255,255,0)'),
-            name='95% Confidence',
-            showlegend=True
-        ))
-
-        if selected_channel in st.session_state.bank_holidays_configured:
-            holiday_mask = forecast['yhat'] == 0
-            if holiday_mask.any():
-                fig.add_trace(go.Scatter(
-                    x=forecast[holiday_mask]['ds'],
-                    y=[forecast['yhat'].max() * 0.05] * holiday_mask.sum(),
-                    mode='markers',
-                    name='Bank Holidays',
-                    marker=dict(color='#EF4444', size=8, symbol='diamond'),
-                    showlegend=True
-                ))
-
-        fig.update_layout(
-            title=f"{selected_channel} — 15-Month Forecast",
-            xaxis_title="Date",
-            yaxis_title="Volume",
-            hovermode='x unified',
-            height=520,
-            template=plotly_template,
-            font=CHART_FONT,
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Model quality info
-        model_info = forecaster.models.get(selected_channel, {})
-        config = model_info.get('config')
-        aic = model_info.get('aic')
-        if config is not None and aic is not None:
-            st.caption(f"Model: trend=`{config[0]}`, seasonal=`{config[1]}` | AIC: {aic:.1f}")
-
-        # KPI metrics
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            avg_historical = historical['Volume'].mean()
-            st.metric("Avg Historical Volume", f"{avg_historical:,.0f}")
-
-        with col2:
-            avg_forecast = forecast['yhat'].mean()
-            st.metric("Avg Forecast Volume", f"{avg_forecast:,.0f}")
-
-        with col3:
-            change = ((avg_forecast - avg_historical) / avg_historical) * 100
-            st.metric("Expected Change", f"{change:+.1f}%")
-
-        with col4:
-            total_forecast = forecast['yhat'].sum()
-            st.metric("Total 15-Month Forecast", f"{total_forecast:,.0f}")
-
-        # Data table
-        with st.expander("📊 View Detailed Forecast Data"):
-            forecast_display = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-            forecast_display.columns = ['Date', 'Forecast', 'Lower Bound', 'Upper Bound']
-            forecast_display['Date'] = pd.to_datetime(forecast_display['Date']).dt.date
-
-            if selected_channel in st.session_state.monthly_volumes_configured:
-                forecast_display['Month'] = pd.to_datetime(forecast_display['Date']).dt.strftime('%Y-%m')
-                monthly_totals = forecast_display.groupby('Month')['Forecast'].sum()
-                st.markdown("**Monthly Totals (with client targets applied):**")
-                st.dataframe(monthly_totals, use_container_width=True)
-
-            st.dataframe(forecast_display, use_container_width=True)
-
-
-# ---------------------------------------------------------------------------
-# Tab: Week Comparison
-# ---------------------------------------------------------------------------
-
-def show_week_comparison(plotly_template='plotly_white'):
-    """Week comparison view"""
-    st.header("Week Comparison Across Years")
-
-    forecaster = st.session_state.forecaster
-    channels = list(forecaster.models.keys())
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        selected_channel = st.selectbox("Select Channel", channels, key="week_channel")
-
-    with col2:
-        week_input = st.text_input(
-            "Enter week numbers (comma-separated)",
-            value="1,10,20,30,40,52"
-        )
-
-    try:
-        week_numbers = [int(w.strip()) for w in week_input.split(',')]
-
-        comparison_df = forecaster.compare_weeks(
-            selected_channel,
-            week_numbers,
-            years=[2024, 2025]
-        )
-
-        if not comparison_df.empty:
-            fig = px.bar(
-                comparison_df,
-                x='Week',
-                y='Volume',
-                color='Year',
-                barmode='group',
-                title=f"{selected_channel} — Weekly Volume Comparison",
-                color_discrete_sequence=CHART_COLORS,
-            )
-
-            fig.update_layout(
-                height=520,
-                template=plotly_template,
-                font=CHART_FONT,
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-            pivot_table = comparison_df.pivot(
-                index='Week',
-                columns='Year',
-                values='Volume'
-            ).fillna(0)
-
-            if 2025 in pivot_table.columns and 2024 in pivot_table.columns:
-                pivot_table['YoY Change %'] = (
-                    (pivot_table[2025] - pivot_table[2024]) / pivot_table[2024] * 100
-                ).round(1)
-
-            st.dataframe(pivot_table, use_container_width=True)
-        else:
-            st.warning("No data available for selected weeks")
-
-    except ValueError:
-        st.error("Please enter valid week numbers (1-52) separated by commas")
-
-
-# ---------------------------------------------------------------------------
-# Tab: Seasonality Analysis
-# ---------------------------------------------------------------------------
-
-def show_seasonality_analysis(plotly_template='plotly_white'):
-    """Seasonality analysis view"""
-    st.header("Seasonality Analysis")
-
-    forecaster = st.session_state.forecaster
-    channels = list(forecaster.models.keys())
-
-    selected_channel = st.selectbox("Select Channel", channels, key="season_channel")
-
-    components = forecaster.get_seasonality_insights(selected_channel)
-
-    if components:
-        if components['weekly'] is not None:
-            st.subheader("📅 Weekly Seasonality Pattern")
-
-            weekly_df = components['weekly'].copy()
-            weekly_df['day_of_week'] = pd.to_datetime(weekly_df['ds']).dt.day_name()
-
-            weekly_avg = weekly_df.groupby('day_of_week')['weekly'].mean().reindex([
-                'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
-            ])
-
-            fig = go.Figure(data=[go.Bar(
-                x=weekly_avg.index,
-                y=weekly_avg.values,
-                marker_color=CHART_COLORS[0]
-            )])
-            fig.update_layout(
-                title="Average Weekly Pattern",
-                xaxis_title="Day of Week",
-                yaxis_title="Seasonality Effect",
-                height=520,
-                template=plotly_template,
-                font=CHART_FONT,
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        if components['yearly'] is not None:
-            st.subheader("📆 Yearly Seasonality Pattern")
-
-            yearly_df = components['yearly'].copy()
-            yearly_df['month'] = pd.to_datetime(yearly_df['ds']).dt.month
-
-            monthly_avg = yearly_df.groupby('month')['yearly'].mean()
-            month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                           'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-            fig = go.Figure(data=[go.Scatter(
-                x=month_names,
-                y=monthly_avg.values,
-                mode='lines+markers',
-                line=dict(color=CHART_COLORS[0], width=2)
-            )])
-            fig.update_layout(
-                title="Average Monthly Pattern",
-                xaxis_title="Month",
-                yaxis_title="Seasonality Effect",
-                height=520,
-                template=plotly_template,
-                font=CHART_FONT,
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-
-# ---------------------------------------------------------------------------
-# Tab: Bank Holidays View
-# ---------------------------------------------------------------------------
-
-def show_bank_holidays_view():
-    """Bank holidays calendar view"""
-    st.header("🏖️ Bank Holidays Calendar")
-
-    if not st.session_state.bank_holidays_configured:
-        st.info("No bank holidays configured. Configure in the sidebar to see the calendar.")
-        return
-
-    forecaster = st.session_state.forecaster
-
-    st.subheader("Configured Channels")
-    for channel, country in st.session_state.bank_holidays_configured.items():
-        countries = forecaster.get_available_countries()
-        st.success(f"✅ **{channel}**: {countries.get(country, country)} bank holidays applied")
-
-    current_year = datetime.now().year
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        selected_country = st.selectbox(
-            "Select Country to View",
-            options=list(set(st.session_state.bank_holidays_configured.values())),
-            format_func=lambda x: forecaster.get_available_countries().get(x, x)
-        )
-
-    with col2:
-        selected_year = st.selectbox(
-            "Select Year",
-            options=[current_year, current_year + 1, current_year + 2],
-            index=0
-        )
-
-    holidays_list = forecaster.get_bank_holidays(selected_country, selected_year, selected_year)
-    holidays_df = pd.DataFrame({
-        'Date': [pd.to_datetime(h) for h in holidays_list if h.year == selected_year],
-    })
-    holidays_df['Day of Week'] = holidays_df['Date'].dt.day_name()
-    holidays_df['Date'] = holidays_df['Date'].dt.date
-
-    st.subheader(f"Bank Holidays in {selected_year}")
-    st.dataframe(holidays_df, use_container_width=True)
-
-    st.subheader("Impact on Forecasts")
-    st.info(
-        f"For channels with {forecaster.get_available_countries()[selected_country]} bank holidays, "
-        f"forecasts will be **zero** on these {len(holidays_df)} days."
+    st.markdown(
+        f'<div class="accuracy-badge">'
+        f'<b>{cfg_str}</b>&nbsp;·&nbsp;{aic_str}&nbsp;·&nbsp;<b>{mape_str}</b>'
+        f'</div>{feat_html}',
+        unsafe_allow_html=True,
     )
 
+    # ── KPI row ───────────────────────────────────────────────────────────────
+    hist_avg = historical['Volume'].mean()
+    fc_avg   = forecast['yhat'].mean()
+    change   = (fc_avg - hist_avg) / hist_avg * 100
+    fc_total = forecast['yhat'].sum()
 
-# ---------------------------------------------------------------------------
-# Tab: Summary Report
-# ---------------------------------------------------------------------------
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Avg Historical / day", f"{hist_avg:,.0f}")
+    k2.metric("Avg Forecast / day",   f"{fc_avg:,.0f}", f"{change:+.1f}%")
+    k3.metric("15-Month Total",        f"{fc_total:,.0f}")
+    k4.metric("Forecast horizon",
+              f"{(forecast['ds'].max() - forecast['ds'].min()).days} days")
 
-def show_summary_report(plotly_template='plotly_white'):
-    """Summary report view"""
-    st.header("📋 Automated Summary Report")
-
-    forecaster = st.session_state.forecaster
-    channels = list(forecaster.models.keys())
-
-    if not forecaster.forecasts or len(forecaster.forecasts) == 0:
-        st.info("ℹ️ **No forecasts generated yet**")
-        st.write("Please train models and return here.")
-        return
-
-    st.subheader("🎯 Forecast Overview")
-
-    summary_data = []
-
-    for channel in channels:
-        if channel not in forecaster.forecasts or forecaster.forecasts[channel] is None:
-            continue
-
-        historical = forecaster.historical_data[
-            forecaster.historical_data['Channel'] == channel
-        ]
-        forecast = forecaster.forecasts[channel]
-
-        hist_avg = historical['Volume'].mean()
-        forecast_avg = forecast['yhat'].mean()
-        forecast_total = forecast['yhat'].sum()
-        change_pct = ((forecast_avg - hist_avg) / hist_avg) * 100
-
-        features = []
-        if channel in st.session_state.bank_holidays_configured:
-            features.append("🏖️")
-        if channel in st.session_state.monthly_volumes_configured:
-            features.append("📅")
-
-        feature_str = " ".join(features) if features else ""
-
-        summary_data.append({
-            'Channel': f"{channel} {feature_str}",
-            'Historical Avg Daily': f"{hist_avg:,.0f}",
-            'Forecast Avg Daily': f"{forecast_avg:,.0f}",
-            'Change %': f"{change_pct:+.1f}%",
-            '15-Month Total': f"{forecast_total:,.0f}"
-        })
-
-    if not summary_data:
-        st.warning("⚠️ No forecast data available to display.")
-        return
-
-    summary_df = pd.DataFrame(summary_data)
-    st.dataframe(summary_df, use_container_width=True)
-
-    st.caption("🏖️ = Bank holidays applied | 📅 = Monthly targets applied")
-
-    st.subheader("📊 Channel Comparison")
-
-    comparison_data = []
-    for channel in channels:
-        if channel not in forecaster.forecasts or forecaster.forecasts[channel] is None:
-            continue
-        forecast = forecaster.forecasts[channel]
-        total = forecast['yhat'].sum()
-        comparison_data.append({'Channel': channel, 'Total Forecast Volume': total})
-
-    if not comparison_data:
-        st.warning("⚠️ No forecast data available for comparison.")
-        return
-
-    comparison_df = pd.DataFrame(comparison_data)
-
-    fig = px.bar(
-        comparison_df,
-        x='Channel',
-        y='Total Forecast Volume',
-        title="15-Month Forecast by Channel",
-        color='Channel',
-        color_discrete_sequence=CHART_COLORS,
-    )
-
+    # ── Daily forecast chart ──────────────────────────────────────────────────
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=historical['Date'], y=historical['Volume'],
+        name='Historical', line=dict(color='#2563EB', width=1.5),
+    ))
+    fig.add_trace(go.Scatter(
+        x=forecast['ds'], y=forecast['yhat'],
+        name='Forecast', line=dict(color='#F59E0B', width=2, dash='dash'),
+    ))
+    fig.add_trace(go.Scatter(
+        x=pd.concat([forecast['ds'], forecast['ds'][::-1]]),
+        y=pd.concat([forecast['yhat_upper'], forecast['yhat_lower'][::-1]]),
+        fill='toself', fillcolor='rgba(245,158,11,0.12)',
+        line=dict(color='rgba(0,0,0,0)'),
+        name='95% CI', showlegend=True,
+    ))
+    if sel in st.session_state.bank_holidays_configured:
+        hm = forecast['yhat'] == 0
+        if hm.any():
+            fig.add_trace(go.Scatter(
+                x=forecast.loc[hm, 'ds'],
+                y=[forecast['yhat'].replace(0, np.nan).max() * 0.04] * hm.sum(),
+                mode='markers', name='Bank Holiday',
+                marker=dict(color='#EF4444', size=7, symbol='diamond'),
+            ))
     fig.update_layout(
-        height=520,
-        template=plotly_template,
-        showlegend=False,
-        font=CHART_FONT,
+        title=f"{sel} — Daily Forecast (15 months)",
+        xaxis_title="Date", yaxis_title="Volume",
+        hovermode='x unified', height=440,
+        template=plotly_tpl, font=CHART_FONT,
+        legend=dict(orientation='h', y=-0.18),
+        margin=dict(b=60),
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("💾 Export Data")
+    # ── Monthly aggregates chart ──────────────────────────────────────────────
+    st.subheader("Monthly volume overview")
 
-    col1, col2 = st.columns(2)
+    hist_m = (historical
+              .assign(Month=historical['Date'].dt.to_period('M'))
+              .groupby('Month')['Volume'].sum()
+              .reset_index())
+    hist_m['Month_ts'] = hist_m['Month'].dt.to_timestamp()
+    hist_m['type'] = 'Historical'
 
-    with col1:
-        if st.button("📥 Download All Forecasts (Excel)", use_container_width=True):
-            output_path = "/tmp/forecasts_export.xlsx"
+    fc_m = (forecast
+            .assign(Month=forecast['ds'].dt.to_period('M'))
+            .groupby('Month')['yhat'].sum()
+            .reset_index())
+    fc_m_lo = (forecast
+               .assign(Month=forecast['ds'].dt.to_period('M'))
+               .groupby('Month')['yhat_lower'].sum()
+               .reset_index())
+    fc_m_hi = (forecast
+               .assign(Month=forecast['ds'].dt.to_period('M'))
+               .groupby('Month')['yhat_upper'].sum()
+               .reset_index())
+    fc_m['Month_ts']    = fc_m['Month'].dt.to_timestamp()
+    fc_m_lo['Month_ts'] = fc_m_lo['Month'].dt.to_timestamp()
+    fc_m_hi['Month_ts'] = fc_m_hi['Month'].dt.to_timestamp()
 
-            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                for channel in channels:
-                    if channel not in forecaster.forecasts or forecaster.forecasts[channel] is None:
+    fig2 = go.Figure()
+    fig2.add_trace(go.Bar(
+        x=hist_m['Month_ts'], y=hist_m['Volume'],
+        name='Historical', marker_color='#2563EB', opacity=0.85,
+    ))
+    fig2.add_trace(go.Bar(
+        x=fc_m['Month_ts'], y=fc_m['yhat'],
+        name='Forecast', marker_color='#F59E0B', opacity=0.85,
+        error_y=dict(
+            type='data',
+            array=(fc_m_hi['yhat_upper'] - fc_m['yhat']).values,
+            arrayminus=(fc_m['yhat'] - fc_m_lo['yhat_lower']).values,
+            visible=True,
+            color='rgba(245,158,11,0.5)',
+        ),
+    ))
+    fig2.update_layout(
+        barmode='overlay',
+        title=f"{sel} — Monthly Totals (historical + forecast)",
+        xaxis_title="Month", yaxis_title="Monthly Volume",
+        height=380, template=plotly_tpl, font=CHART_FONT,
+        hovermode='x unified',
+        legend=dict(orientation='h', y=-0.2),
+        margin=dict(b=60),
+    )
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # ── Back-test accuracy ────────────────────────────────────────────────────
+    with st.expander("🔬 Model accuracy — last 60-day backtest", expanded=False):
+        bt_df = forecaster.backtest(sel, holdout_days=60)
+        if bt_df is not None and len(bt_df):
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(
+                x=bt_df['ds'], y=bt_df['actual'],
+                name='Actual', line=dict(color='#2563EB', width=2),
+            ))
+            fig3.add_trace(go.Scatter(
+                x=bt_df['ds'], y=bt_df['predicted'],
+                name='Model', line=dict(color='#F59E0B', width=2, dash='dot'),
+            ))
+            fig3.update_layout(
+                title="Actual vs Model (held-out test set)",
+                xaxis_title="Date", yaxis_title="Volume",
+                hovermode='x unified', height=320,
+                template=plotly_tpl, font=CHART_FONT,
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+
+            mape = bt_df['error_pct'].mean()
+            mae  = np.abs(bt_df['actual'] - bt_df['predicted']).mean()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("MAPE",  f"{mape:.1f}%",  help="Mean Absolute % Error")
+            c2.metric("MAE",   f"{mae:,.0f}",   help="Mean Absolute Error")
+            c3.metric("Days tested", len(bt_df))
+        else:
+            st.info("Not enough data for backtest (need > 74 days).")
+
+    # ── Forecast data table ────────────────────────────────────────────────────
+    with st.expander("📊 Forecast data table"):
+        disp = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        disp.columns = ['Date', 'Forecast', 'Lower 95%', 'Upper 95%']
+        disp['Date'] = disp['Date'].dt.date
+        disp[['Forecast', 'Lower 95%', 'Upper 95%']] = disp[
+            ['Forecast', 'Lower 95%', 'Upper 95%']
+        ].round(0)
+        if sel in st.session_state.monthly_volumes_configured:
+            disp['Month'] = pd.to_datetime(disp['Date']).dt.strftime('%Y-%m')
+            st.markdown("**Monthly totals (targets applied):**")
+            st.dataframe(disp.groupby('Month')['Forecast'].sum().rename("Monthly Total"),
+                         use_container_width=True)
+            disp = disp.drop('Month', axis=1)
+        st.dataframe(disp, use_container_width=True)
+
+
+# ---------------------------------------------------------------------------
+# Tab 2 – Week comparison
+# ---------------------------------------------------------------------------
+
+def show_week_comparison(plotly_tpl):
+    st.header("Week Comparison Across Years")
+    forecaster = st.session_state.forecaster
+    channels   = list(forecaster.models.keys())
+
+    c1, c2 = st.columns(2)
+    with c1:
+        sel = st.selectbox("Channel", channels, key="wc_ch")
+    with c2:
+        week_input = st.text_input("Week numbers (comma-separated)", "1,10,20,30,40,52")
+
+    try:
+        weeks = [int(w.strip()) for w in week_input.split(',')]
+        df = forecaster.compare_weeks(sel, weeks, years=[2024, 2025])
+        if df.empty:
+            st.warning("No data for selected weeks.")
+            return
+
+        fig = px.bar(df, x='Week', y='Volume', color='Year', barmode='group',
+                     title=f"{sel} — Weekly Volume Comparison",
+                     color_discrete_sequence=CHART_COLORS)
+        fig.update_layout(height=440, template=plotly_tpl, font=CHART_FONT)
+        st.plotly_chart(fig, use_container_width=True)
+
+        pivot = df.pivot(index='Week', columns='Year', values='Volume').fillna(0)
+        if 2025 in pivot.columns and 2024 in pivot.columns:
+            pivot['YoY %'] = ((pivot[2025] - pivot[2024]) / pivot[2024] * 100).round(1)
+        st.dataframe(pivot, use_container_width=True)
+    except ValueError:
+        st.error("Enter valid week numbers 1–52 separated by commas.")
+
+
+# ---------------------------------------------------------------------------
+# Tab 3 – Seasonality
+# ---------------------------------------------------------------------------
+
+def show_seasonality_analysis(plotly_tpl):
+    st.header("Seasonality Analysis")
+    forecaster = st.session_state.forecaster
+    channels   = list(forecaster.models.keys())
+    sel        = st.selectbox("Channel", channels, key="sa_ch")
+
+    # Show extracted monthly factors
+    md = forecaster.models.get(sel, {})
+    mf = md.get('monthly_factors')
+    if mf:
+        st.subheader("📆 Monthly seasonal factors (used in forecast)")
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        vals = [mf.get(m, 1.0) for m in range(1, 13)]
+        colors = ['#EF4444' if v > 1.05 else '#2563EB' if v < 0.95 else '#94A3B8'
+                  for v in vals]
+        fig = go.Figure(data=[go.Bar(
+            x=month_names, y=vals,
+            marker_color=colors,
+            text=[f"{v:.2f}" for v in vals],
+            textposition='outside',
+        )])
+        fig.add_hline(y=1.0, line_dash='dot', line_color='#94A3B8',
+                      annotation_text="Baseline (1.0)")
+        fig.update_layout(
+            title=f"{sel} — Monthly seasonal index (>1 = above average)",
+            yaxis_title="Seasonal factor", height=380,
+            template=plotly_tpl, font=CHART_FONT,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Weekly pattern
+    comps = forecaster.get_seasonality_insights(sel)
+    if comps and comps.get('weekly') is not None:
+        st.subheader("📅 Weekly pattern")
+        wd = comps['weekly'].copy()
+        wd['dow'] = pd.to_datetime(wd['ds']).dt.day_name()
+        avg = wd.groupby('dow')['weekly'].mean().reindex(
+            ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
+        fig2 = go.Figure(data=[go.Bar(
+            x=avg.index, y=avg.values,
+            marker_color=['#2563EB' if v >= 0 else '#EF4444' for v in avg.values],
+        )])
+        fig2.update_layout(
+            title="Day-of-week seasonality effect",
+            yaxis_title="Additive effect",
+            height=320, template=plotly_tpl, font=CHART_FONT,
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+
+# ---------------------------------------------------------------------------
+# Tab 4 – Bank holidays
+# ---------------------------------------------------------------------------
+
+def show_bank_holidays_view():
+    st.header("🏖️ Bank Holidays")
+    if not st.session_state.bank_holidays_configured:
+        st.info("No bank holidays configured. Set them up in the sidebar.")
+        return
+
+    forecaster   = st.session_state.forecaster
+    countries    = forecaster.get_available_countries()
+    current_year = datetime.now().year
+
+    for ch, cc in st.session_state.bank_holidays_configured.items():
+        st.success(f"✅ **{ch}** — {countries.get(cc, cc)} holidays applied")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        sel_cc = st.selectbox(
+            "Country", list(set(st.session_state.bank_holidays_configured.values())),
+            format_func=lambda x: countries.get(x, x))
+    with c2:
+        sel_yr = st.selectbox("Year", [current_year, current_year+1, current_year+2])
+
+    h_list = forecaster.get_bank_holidays(sel_cc, sel_yr, sel_yr)
+    h_df   = pd.DataFrame({'Date': [h for h in h_list if h.year == sel_yr]})
+    h_df['Day of Week'] = pd.to_datetime(h_df['Date']).dt.day_name()
+    h_df['Date'] = pd.to_datetime(h_df['Date']).dt.date
+
+    st.subheader(f"Holidays in {sel_yr}")
+    st.dataframe(h_df, use_container_width=True)
+    st.caption(f"{len(h_df)} holiday(s) → forecast volume set to zero on these days.")
+
+
+# ---------------------------------------------------------------------------
+# Tab 5 – Summary & export
+# ---------------------------------------------------------------------------
+
+def show_summary_report(plotly_tpl):
+    st.header("Summary Report")
+    forecaster = st.session_state.forecaster
+    channels   = list(forecaster.models.keys())
+
+    if not forecaster.forecasts:
+        st.info("Train models to see the summary.")
+        return
+
+    # ── Summary table ─────────────────────────────────────────────────────────
+    rows = []
+    for ch in channels:
+        fc = forecaster.forecasts.get(ch)
+        if fc is None:
+            continue
+        hist = forecaster.historical_data[
+            forecaster.historical_data['Channel'] == ch]
+        ha   = hist['Volume'].mean()
+        fa   = fc['yhat'].mean()
+        tot  = fc['yhat'].sum()
+        chg  = (fa - ha) / ha * 100
+        mf   = forecaster.models.get(ch, {}).get('monthly_factors', {})
+        peak = max(mf, key=mf.get) if mf else '—'
+        trough = min(mf, key=mf.get) if mf else '—'
+        import calendar
+        peak_name   = calendar.month_abbr[peak]   if isinstance(peak, int)   else '—'
+        trough_name = calendar.month_abbr[trough] if isinstance(trough, int) else '—'
+        badges = []
+        if ch in st.session_state.bank_holidays_configured: badges.append("🏖️")
+        if ch in st.session_state.monthly_volumes_configured: badges.append("📅")
+        rows.append({
+            'Channel':          f"{ch} {''.join(badges)}",
+            'Hist. avg/day':    f"{ha:,.0f}",
+            'Forecast avg/day': f"{fa:,.0f}",
+            'Change':           f"{chg:+.1f}%",
+            '15M Total':        f"{tot:,.0f}",
+            'Peak month':       peak_name,
+            'Trough month':     trough_name,
+        })
+
+    if not rows:
+        st.warning("No forecast data.")
+        return
+
+    summary_df = pd.DataFrame(rows)
+    st.dataframe(summary_df, use_container_width=True)
+    st.caption("🏖️ = holidays applied  |  📅 = monthly targets applied")
+
+    # ── Channel comparison bar chart ──────────────────────────────────────────
+    st.subheader("15-Month forecast by channel")
+    comp = [{'Channel': ch,
+             'Total': forecaster.forecasts[ch]['yhat'].sum()}
+            for ch in channels if ch in forecaster.forecasts and forecaster.forecasts[ch] is not None]
+    if comp:
+        fig = px.bar(pd.DataFrame(comp), x='Channel', y='Total',
+                     color='Channel', color_discrete_sequence=CHART_COLORS,
+                     title="Total forecast volume per channel")
+        fig.update_layout(height=380, template=plotly_tpl, font=CHART_FONT, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── Export ────────────────────────────────────────────────────────────────
+    st.subheader("Export")
+    e1, e2 = st.columns(2)
+
+    with e1:
+        if st.button("📥 All Forecasts (Excel)", use_container_width=True):
+            out = "/tmp/forecasts_export.xlsx"
+            with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                for ch in channels:
+                    fc = forecaster.forecasts.get(ch)
+                    if fc is None:
                         continue
-                    forecast = forecaster.forecasts[channel][['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-                    forecast.columns = ['Date', 'Forecast', 'Lower Bound', 'Upper Bound']
-                    forecast.to_excel(writer, sheet_name=channel, index=False)
+                    ex = fc[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+                    ex.columns = ['Date', 'Forecast', 'Lower 95%', 'Upper 95%']
+                    ex.to_excel(writer, sheet_name=ch[:31], index=False)
+            with open(out, 'rb') as f:
+                st.download_button("⬇️ Download",  f.read(),
+                    file_name=f"forecasts_{datetime.now():%Y%m%d}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-            with open(output_path, 'rb') as f:
-                st.download_button(
-                    "⬇️ Download",
-                    f.read(),
-                    file_name=f"contact_forecasts_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-    with col2:
-        if st.button("📊 Download Summary Report (Excel)", use_container_width=True):
-            output_path = "/tmp/summary_report.xlsx"
-            summary_df.to_excel(output_path, index=False)
-
-            with open(output_path, 'rb') as f:
-                st.download_button(
-                    "⬇️ Download",
-                    f.read(),
-                    file_name=f"forecast_summary_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+    with e2:
+        if st.button("📊 Summary (Excel)", use_container_width=True):
+            out = "/tmp/summary.xlsx"
+            summary_df.to_excel(out, index=False)
+            with open(out, 'rb') as f:
+                st.download_button("⬇️ Download", f.read(),
+                    file_name=f"summary_{datetime.now():%Y%m%d}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 if __name__ == "__main__":
