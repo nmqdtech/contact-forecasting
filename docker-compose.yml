@@ -31,7 +31,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://forecasting:forecasting@db:5432/forecasting
       SYNC_DATABASE_URL: postgresql+psycopg2://forecasting:forecasting@db:5432/forecasting
-      CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173","http://localhost:80"]'
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173","http://localhost","http://localhost:80"]'
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +50,29 @@ services:
         reservations:
           cpus: '0.5'
           memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── React frontend (nginx serves static + proxies /api to backend) ─────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: forecasting-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     logging:
       driver: "json-file"
       options:
