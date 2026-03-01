@@ -86,6 +86,8 @@ class ContactForecaster:
     def _compute_monthly_factors(self, ts: pd.Series) -> dict:
         monthly_avg = ts.groupby(ts.index.month).mean()
         overall_avg = ts.mean()
+        if overall_avg == 0:
+            return {m: 1.0 for m in range(1, 13)}
         factors = {}
         for m in range(1, 13):
             factors[m] = float(monthly_avg[m] / overall_avg) if m in monthly_avg.index else 1.0
@@ -122,6 +124,10 @@ class ContactForecaster:
 
         ts = channel_data.set_index('Date')['Volume'].astype(float)
 
+        # Fill date gaps (e.g. weekends with no activity) so index has daily freq
+        full_range = pd.date_range(ts.index.min(), ts.index.max(), freq='D')
+        ts = ts.reindex(full_range, fill_value=0.0)
+
         q1, q3 = ts.quantile(0.25), ts.quantile(0.75)
         iqr = q3 - q1
         ts = ts.clip(lower=q1 - 1.5 * iqr, upper=q3 + 1.5 * iqr)
@@ -157,7 +163,6 @@ class ContactForecaster:
                     trend=trend,
                     seasonal=seasonal,
                     damped_trend=damped,
-                    freq='D',
                 )
                 fitted = m.fit(optimized=True)
                 aic = fitted.aic
@@ -187,7 +192,7 @@ class ContactForecaster:
 
         try:
             m = ExponentialSmoothing(ts_adj, trend='add', seasonal=None,
-                                     damped_trend=True, freq='D')
+                                     damped_trend=True)
             fitted = m.fit(optimized=True)
             self.models[channel] = {
                 'model': fitted,
@@ -279,6 +284,10 @@ class ContactForecaster:
         md = self.models[channel]
         ts = md['ts']
 
+        # Ensure daily freq (same fix as train_model)
+        full_range = pd.date_range(ts.index.min(), ts.index.max(), freq='D')
+        ts = ts.reindex(full_range, fill_value=0.0)
+
         if len(ts) <= holdout_days + 14:
             return None
 
@@ -293,11 +302,10 @@ class ContactForecaster:
         try:
             m = ExponentialSmoothing(
                 train_adj,
-                seasonal_periods=7,
+                seasonal_periods=7 if seasonal else None,
                 trend=trend,
                 seasonal=seasonal,
                 damped_trend=damped,
-                freq='D',
             )
             fitted = m.fit(optimized=True)
             preds_adj = fitted.forecast(steps=holdout_days)

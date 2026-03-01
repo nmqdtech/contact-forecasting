@@ -42,6 +42,11 @@ def parse_excel(content: bytes) -> pd.DataFrame:
             f"{bad_vols} non-numeric volumes."
         )
 
+    # Aggregate duplicate (Channel, Date) pairs by summing volumes
+    df = (
+        df.groupby(["Channel", "Date"], as_index=False)["Volume"]
+        .sum()
+    )
     df = df.sort_values("Date").reset_index(drop=True)
     return df
 

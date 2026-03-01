@@ -2,6 +2,7 @@
 Forecasting service: background training jobs and forecast/backtest retrieval.
 """
 import asyncio
+import io
 import uuid
 from datetime import datetime, timezone
 
@@ -603,3 +604,155 @@ async def get_summary_rows(db: AsyncSession) -> list[SummaryRow]:
         )
 
     return rows
+
+
+# ---------------------------------------------------------------------------
+# PDF report
+# ---------------------------------------------------------------------------
+
+
+async def generate_pdf_report(db: AsyncSession) -> bytes:
+    """Generate a multi-page PDF report using matplotlib and return raw bytes."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    summary_rows = await get_summary_rows(db)
+
+    runs_result = await db.execute(
+        select(TrainingRun).where(TrainingRun.is_active == True)  # noqa: E712
+    )
+    active_runs = {r.channel: r for r in runs_result.scalars().all()}
+    channels = sorted(active_runs.keys())
+
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        # ── Page 1: Cover + Summary table ────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(8.27, 11.69))
+        ax.axis("off")
+        ax.text(
+            0.5, 0.92, "Contact Volume Forecast Report",
+            ha="center", va="center", fontsize=20, fontweight="bold",
+            transform=ax.transAxes,
+        )
+        ax.text(
+            0.5, 0.87,
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            ha="center", va="center", fontsize=11, color="#64748B",
+            transform=ax.transAxes,
+        )
+
+        if summary_rows:
+            col_labels = [
+                "Channel", "Hist Avg/day", "Fcst Avg/day",
+                "Change %", "Total 15m", "Peak", "Trough",
+            ]
+            table_data = [
+                [
+                    r.channel,
+                    f"{r.hist_avg_daily:,.0f}",
+                    f"{r.forecast_avg_daily:,.0f}",
+                    f"{r.change_pct:+.1f}%",
+                    f"{r.total_15m:,.0f}",
+                    r.peak_month,
+                    r.trough_month,
+                ]
+                for r in summary_rows
+            ]
+            tbl = ax.table(
+                cellText=table_data,
+                colLabels=col_labels,
+                loc="center",
+                cellLoc="center",
+            )
+            tbl.auto_set_font_size(False)
+            tbl.set_fontsize(9)
+            tbl.scale(1, 1.4)
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # ── Pages 2+: Per-channel forecast + backtest charts ─────────────────
+        for channel in channels:
+            run = active_runs[channel]
+
+            # Load forecast data
+            fc_result = await db.execute(
+                select(Forecast)
+                .where(Forecast.training_run_id == run.id)
+                .where(Forecast.channel == channel)
+                .order_by(Forecast.forecast_date)
+            )
+            fcs = fc_result.scalars().all()
+
+            # Load observations
+            obs_result = await db.execute(
+                select(ChannelObservation)
+                .where(ChannelObservation.dataset_id == run.dataset_id)
+                .where(ChannelObservation.channel == channel)
+                .order_by(ChannelObservation.obs_date)
+            )
+            observations = obs_result.scalars().all()
+
+            # Load backtest
+            bt_result = await db.execute(
+                select(BacktestResult).where(BacktestResult.training_run_id == run.id)
+            )
+            bt = bt_result.scalar_one_or_none()
+
+            fig, axes = plt.subplots(2, 1, figsize=(8.27, 11.69))
+            fig.suptitle(f"Channel: {channel}", fontsize=14, fontweight="bold", y=0.98)
+
+            # Top subplot: historical + forecast
+            ax_fc = axes[0]
+            if observations:
+                obs_dates = [pd.Timestamp(o.obs_date) for o in observations]
+                obs_vols = [float(o.volume) for o in observations]
+                ax_fc.plot(obs_dates, obs_vols, color="#2563EB", linewidth=1.2,
+                           label="Historical", alpha=0.8)
+            if fcs:
+                fc_dates = [pd.Timestamp(f.forecast_date) for f in fcs]
+                fc_yhats = [float(f.yhat or 0) for f in fcs]
+                fc_lowers = [float(f.yhat_lower or 0) for f in fcs]
+                fc_uppers = [float(f.yhat_upper or 0) for f in fcs]
+                ax_fc.plot(fc_dates, fc_yhats, color="#F59E0B", linewidth=1.5,
+                           label="Forecast")
+                ax_fc.fill_between(fc_dates, fc_lowers, fc_uppers,
+                                   color="#F59E0B", alpha=0.15, label="95% CI")
+            ax_fc.set_title("Daily Forecast", fontsize=10)
+            ax_fc.legend(fontsize=8)
+            ax_fc.tick_params(labelsize=8)
+            ax_fc.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda x, _: f"{x:,.0f}")
+            )
+
+            # Bottom subplot: backtest
+            ax_bt = axes[1]
+            if bt and bt.data:
+                bt_dates = [pd.Timestamp(row["date"]) for row in bt.data]
+                actuals = [row["actual"] for row in bt.data]
+                predicted = [row["predicted"] for row in bt.data]
+                ax_bt.plot(bt_dates, actuals, color="#2563EB", linewidth=1.2,
+                           label="Actual")
+                ax_bt.plot(bt_dates, predicted, color="#EF4444", linewidth=1.2,
+                           linestyle="--", label="Predicted")
+                mape_label = f"MAPE: {float(bt.mape):.1f}%" if bt.mape else ""
+                ax_bt.set_title(f"Backtest ({bt.holdout_days}-day holdout)  {mape_label}",
+                                fontsize=10)
+                ax_bt.legend(fontsize=8)
+                ax_bt.tick_params(labelsize=8)
+                ax_bt.yaxis.set_major_formatter(
+                    plt.FuncFormatter(lambda x, _: f"{x:,.0f}")
+                )
+            else:
+                ax_bt.text(0.5, 0.5, "No backtest data", ha="center", va="center",
+                           transform=ax_bt.transAxes, color="#94A3B8")
+                ax_bt.set_title("Backtest", fontsize=10)
+
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
+
+    buf.seek(0)
+    return buf.read()

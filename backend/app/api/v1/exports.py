@@ -67,3 +67,16 @@ async def export_summary(db: AsyncSession = Depends(get_db)):
         media_type=_XLSX_MIME,
         headers={"Content-Disposition": "attachment; filename=summary.xlsx"},
     )
+
+
+@router.get("/report")
+async def download_pdf_report(db: AsyncSession = Depends(get_db)):
+    """Download a multi-page PDF report with forecasts and backtest charts."""
+    pdf_bytes = await forecasting_service.generate_pdf_report(db)
+    if not pdf_bytes:
+        raise HTTPException(404, "No data available — train models first")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=forecast-report.pdf"},
+    )

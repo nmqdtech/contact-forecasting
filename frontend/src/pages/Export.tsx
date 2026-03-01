@@ -1,4 +1,4 @@
-import { Download, FileSpreadsheet } from 'lucide-react'
+import { Download, FileSpreadsheet, FileText } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { exportForecastsUrl, exportSummaryUrl } from '../api/forecasts'
@@ -17,7 +17,7 @@ export default function Export() {
       </div>
 
       {/* Download cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card className="p-5 flex flex-col gap-4">
           <div className="flex items-start gap-3">
             <FileSpreadsheet className="w-8 h-8 text-blue-500 flex-shrink-0 mt-0.5" />
@@ -48,6 +48,23 @@ export default function Export() {
           <a href={exportSummaryUrl()} download="summary.xlsx">
             <Button variant="secondary" className="w-full justify-center">
               <Download className="w-4 h-4" /> Download summary.xlsx
+            </Button>
+          </a>
+        </Card>
+
+        <Card className="p-5 flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <FileText className="w-8 h-8 text-violet-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-slate-800 dark:text-slate-200">PDF Report</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                Multi-page PDF with forecast charts and backtest results per channel
+              </p>
+            </div>
+          </div>
+          <a href="/api/v1/exports/report" download="forecast-report.pdf">
+            <Button variant="secondary" className="w-full justify-center">
+              <Download className="w-4 h-4" /> Download forecast-report.pdf
             </Button>
           </a>
         </Card>
