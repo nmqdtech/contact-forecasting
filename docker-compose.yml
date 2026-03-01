@@ -1,16 +1,71 @@
 version: '3.8'
 
 services:
-  forecasting:
-    build: .
+  # ── PostgreSQL database ───────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: forecasting-db
+    environment:
+      POSTGRES_USER: forecasting
+      POSTGRES_PASSWORD: forecasting
+      POSTGRES_DB: forecasting
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forecasting"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: forecasting-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://forecasting:forecasting@db:5432/forecasting
+      SYNC_DATABASE_URL: postgresql+psycopg2://forecasting:forecasting@db:5432/forecasting
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173","http://localhost:80"]'
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Legacy Streamlit app (kept for reference during transition) ───────────
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: contact-forecasting
     ports:
       - "8501:8501"
     volumes:
-      # Persistent data storage
       - ./data:/app/data
-      # Optional: Mount your historical data
-      # - ./your_data.xlsx:/app/your_data.xlsx
     restart: unless-stopped
     environment:
       - STREAMLIT_SERVER_HEADLESS=true
@@ -23,7 +78,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    # Resource limits (adjust based on your needs)
     deploy:
       resources:
         limits:
@@ -32,33 +86,12 @@ services:
         reservations:
           cpus: '1'
           memory: 2G
-    # Logging configuration
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-  # Optional: Add nginx reverse proxy
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: forecasting-nginx
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./ssl:/etc/nginx/ssl:ro
-  #   depends_on:
-  #     - forecasting
-  #   restart: unless-stopped
-
-# Optional: Define network
-# networks:
-#   forecasting-network:
-#     driver: bridge
-
-# Optional: Define volumes for better data persistence
-# volumes:
-#   forecast-data:
-#     driver: local
+volumes:
+  pg_data:
+    driver: local
