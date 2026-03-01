@@ -1,0 +1,37 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: SSH deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key:      ${{ secrets.DO_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/forecasting
+
+            echo "==> Pulling latest code"
+            git pull origin main
+
+            echo "==> Building updated images"
+            docker compose -f docker-compose.prod.yml build --no-cache backend frontend
+
+            echo "==> Restarting services"
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            echo "==> Waiting for backend health"
+            sleep 15
+            docker compose -f docker-compose.prod.yml exec -T backend \
+              curl -sf http://localhost:8000/health || true
+
+            echo "==> Done — deployed successfully"
