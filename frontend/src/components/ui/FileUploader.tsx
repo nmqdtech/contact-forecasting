@@ -2,27 +2,34 @@ import { useCallback, useRef, useState } from 'react'
 import { Upload } from 'lucide-react'
 
 interface FileUploaderProps {
-  onFile: (file: File) => void
+  onFiles: (files: File[]) => void
   loading?: boolean
   accept?: string
 }
 
 export default function FileUploader({
-  onFile,
+  onFiles,
   loading,
   accept = '.xlsx,.xls',
 }: FileUploaderProps) {
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const handleFiles = useCallback(
+    (fileList: FileList | null) => {
+      if (!fileList || fileList.length === 0) return
+      onFiles(Array.from(fileList))
+    },
+    [onFiles]
+  )
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
       setDragOver(false)
-      const file = e.dataTransfer.files[0]
-      if (file) onFile(file)
+      handleFiles(e.dataTransfer.files)
     },
-    [onFile]
+    [handleFiles]
   )
 
   return (
@@ -44,19 +51,19 @@ export default function FileUploader({
         ref={inputRef}
         type="file"
         accept={accept}
+        multiple
         className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) onFile(f)
-        }}
+        onChange={(e) => handleFiles(e.target.files)}
       />
       <Upload className="w-10 h-10 mx-auto mb-4 text-slate-400 dark:text-slate-500" />
       <p className="font-semibold text-slate-700 dark:text-slate-300">
-        {loading ? 'Uploading…' : 'Drop your Excel file here, or click to browse'}
+        {loading ? 'Uploading…' : 'Drop Excel file(s) here, or click to browse'}
       </p>
       <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-        Accepts <code>.xlsx</code> / <code>.xls</code> — requires{' '}
-        <strong>Date</strong>, <strong>Channel</strong>, <strong>Volume</strong> columns
+        Accepts <code>.xlsx</code> / <code>.xls</code> — single or multiple files merged automatically
+      </p>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+        Requires <strong>Date</strong>, <strong>Channel</strong>, <strong>Volume</strong> columns
       </p>
     </div>
   )

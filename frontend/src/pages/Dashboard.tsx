@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle, Database, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Database, Trash2, XCircle } from 'lucide-react'
 import { useState } from 'react'
-import { listDatasets, uploadFile } from '../api/uploads'
+import { listDatasets, resetAllData, uploadFiles } from '../api/uploads'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -29,6 +29,7 @@ export default function Dashboard() {
   const [monthsAhead, setMonthsAhead] = useState(15)
   const [uploadInfo, setUploadInfo] = useState<DatasetOut | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [confirmReset, setConfirmReset] = useState(false)
 
   const { data: channels } = useChannels()
   const { data: summary } = useSummary()
@@ -46,7 +47,7 @@ export default function Dashboard() {
 
   // File upload mutation
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => uploadFile(file),
+    mutationFn: (files: File[]) => uploadFiles(files),
     onSuccess: (data) => {
       setUploadInfo(data)
       setUploadError(null)
@@ -54,10 +55,25 @@ export default function Dashboard() {
       setSelectedChannels(data.channels)
       qc.invalidateQueries({ queryKey: ['channels'] })
       qc.invalidateQueries({ queryKey: ['datasets'] })
+      qc.invalidateQueries({ queryKey: ['summary'] })
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setUploadError(msg ?? 'Upload failed')
+    },
+  })
+
+  // Reset mutation
+  const resetMutation = useMutation({
+    mutationFn: resetAllData,
+    onSuccess: () => {
+      setUploadInfo(null)
+      setUploadError(null)
+      setSelectedChannels([])
+      setActiveDatasetId(null)
+      setActiveJobId(null)
+      setConfirmReset(false)
+      qc.invalidateQueries()
     },
   })
 
@@ -82,11 +98,42 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Upload historical data, train models, and view forecasts
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Upload historical data, train models, and view forecasts
+          </p>
+        </div>
+
+        {/* Reset button */}
+        {!confirmReset ? (
+          <button
+            onClick={() => setConfirmReset(true)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Reset all data
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
+            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+            <span className="text-sm text-red-700 dark:text-red-300">Delete all datasets, models & forecasts?</span>
+            <button
+              onClick={() => resetMutation.mutate()}
+              disabled={resetMutation.isPending}
+              className="px-3 py-1 text-sm font-medium bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {resetMutation.isPending ? 'Deleting…' : 'Yes, reset'}
+            </button>
+            <button
+              onClick={() => setConfirmReset(false)}
+              className="px-3 py-1 text-sm border border-slate-300 dark:border-slate-600 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-300"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Upload section */}
@@ -94,7 +141,10 @@ export default function Dashboard() {
         <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4">
           1 — Upload Historical Data
         </h2>
-        <FileUploader onFile={(f) => uploadMutation.mutate(f)} loading={uploadMutation.isPending} />
+        <FileUploader
+          onFiles={(files) => uploadMutation.mutate(files)}
+          loading={uploadMutation.isPending}
+        />
         {uploadError && (
           <p className="mt-3 text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
             <XCircle className="w-4 h-4" /> {uploadError}

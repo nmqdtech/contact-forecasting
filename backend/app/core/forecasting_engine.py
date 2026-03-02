@@ -128,13 +128,16 @@ class ContactForecaster:
         full_range = pd.date_range(ts.index.min(), ts.index.max(), freq='D')
         ts = ts.reindex(full_range, fill_value=0.0)
 
-        q1, q3 = ts.quantile(0.25), ts.quantile(0.75)
-        iqr = q3 - q1
-        ts = ts.clip(lower=q1 - 1.5 * iqr, upper=q3 + 1.5 * iqr)
+        # IQR winsorization on non-zero values only — weekend fill zeros must not skew quartiles
+        nonzero = ts[ts > 0]
+        if len(nonzero) >= 8:
+            q1, q3 = nonzero.quantile(0.25), nonzero.quantile(0.75)
+            iqr = q3 - q1
+            ts = ts.clip(upper=q3 + 1.5 * iqr)
 
+        # Keep monthly factors for metadata only; do NOT de-seasonalise before fitting
         monthly_factors = self._compute_monthly_factors(ts)
-        ts_adj = self._apply_monthly_factors(ts, monthly_factors)
-        ts_adj = ts_adj.clip(lower=0.1)
+        ts_fit = ts.clip(lower=0.1)
 
         apply_holidays = channel in self.bank_holiday_config
         country_code = self.bank_holiday_config.get(channel)
@@ -158,7 +161,7 @@ class ContactForecaster:
         for trend, seasonal, damped in configs:
             try:
                 m = ExponentialSmoothing(
-                    ts_adj,
+                    ts_fit,
                     seasonal_periods=7,
                     trend=trend,
                     seasonal=seasonal,
@@ -180,7 +183,6 @@ class ContactForecaster:
                 'model': best_model,
                 'last_date': ts.index[-1],
                 'ts': ts,
-                'ts_adj': ts_adj,
                 'monthly_factors': monthly_factors,
                 'apply_holidays': apply_holidays,
                 'country_code': country_code,
@@ -191,14 +193,13 @@ class ContactForecaster:
             return True, f"Model trained for {channel} — {best_config}, AIC={best_aic:.1f}"
 
         try:
-            m = ExponentialSmoothing(ts_adj, trend='add', seasonal=None,
+            m = ExponentialSmoothing(ts_fit, trend='add', seasonal=None,
                                      damped_trend=True)
             fitted = m.fit(optimized=True)
             self.models[channel] = {
                 'model': fitted,
                 'last_date': ts.index[-1],
                 'ts': ts,
-                'ts_adj': ts_adj,
                 'monthly_factors': monthly_factors,
                 'apply_holidays': apply_holidays,
                 'country_code': country_code,
@@ -250,8 +251,6 @@ class ContactForecaster:
                 forecast_df['yhat_lower'] = forecast_df['yhat'] - 1.96 * std_err
                 forecast_df['yhat_upper'] = forecast_df['yhat'] + 1.96 * std_err
 
-            forecast_df = self._reapply_monthly_factors(forecast_df, monthly_factors)
-
             if md['apply_holidays'] and md['country_code']:
                 holiday_dates = self.get_bank_holidays(
                     md['country_code'],
@@ -294,24 +293,19 @@ class ContactForecaster:
         train_ts = ts.iloc[:-holdout_days]
         test_ts = ts.iloc[-holdout_days:]
 
-        monthly_factors = self._compute_monthly_factors(train_ts)
-        train_adj = self._apply_monthly_factors(train_ts, monthly_factors).clip(lower=0.1)
-
         trend, seasonal, damped = md.get('config', ('add', 'add', True))
 
         try:
+            train_fit = train_ts.clip(lower=0.1)
             m = ExponentialSmoothing(
-                train_adj,
+                train_fit,
                 seasonal_periods=7 if seasonal else None,
                 trend=trend,
                 seasonal=seasonal,
                 damped_trend=damped,
             )
             fitted = m.fit(optimized=True)
-            preds_adj = fitted.forecast(steps=holdout_days)
-
-            mf = np.array([monthly_factors.get(d.month, 1.0) for d in test_ts.index])
-            preds = preds_adj.values * mf
+            preds = fitted.forecast(steps=holdout_days).values
 
             result = pd.DataFrame({
                 'ds': test_ts.index,

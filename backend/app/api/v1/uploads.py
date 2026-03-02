@@ -1,16 +1,22 @@
 """
-Upload routes: POST /uploads, GET /uploads, DELETE /uploads/{id}
+Upload routes: POST /uploads, GET /uploads, DELETE /uploads/reset, DELETE /uploads/{id}
 """
 import uuid
 
+import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.data_processor import DataValidationError, extract_metadata, parse_excel
 from app.db.database import get_db
+from app.models.backtest_result import BacktestResult
+from app.models.channel_config import ChannelConfig
 from app.models.dataset import Dataset
+from app.models.forecast import Forecast
+from app.models.monthly_target import MonthlyTarget
 from app.models.observation import ChannelObservation
+from app.models.training_run import TrainingRun
 from app.schemas.upload import DatasetOut, DatasetSummary
 
 router = APIRouter()
@@ -18,28 +24,47 @@ router = APIRouter()
 
 @router.post("", response_model=DatasetOut, status_code=status.HTTP_201_CREATED)
 async def upload_dataset(
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse an Excel file, persist observations, and activate the dataset."""
-    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(422, "Only .xlsx / .xls files are supported")
+    """Parse one or more Excel files, merge them, persist observations, and activate the dataset."""
+    if not files:
+        raise HTTPException(422, "At least one file is required")
 
-    content = await file.read()
+    frames: list[pd.DataFrame] = []
+    filenames: list[str] = []
 
-    try:
-        df = parse_excel(content)
-    except DataValidationError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    for file in files:
+        if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+            raise HTTPException(422, f"{file.filename!r}: only .xlsx / .xls files are supported")
+        content = await file.read()
+        try:
+            df = parse_excel(content)
+        except DataValidationError as exc:
+            raise HTTPException(422, f"{file.filename}: {exc}") from exc
+        frames.append(df)
+        filenames.append(file.filename)
 
-    meta = extract_metadata(df)
+    # Merge: sum volume for same (Channel, Date) across files
+    if len(frames) == 1:
+        merged = frames[0]
+    else:
+        raw = pd.concat(frames, ignore_index=True)
+        merged = (
+            raw.groupby(["Channel", "Date"], as_index=False)["Volume"]
+            .sum()
+            .sort_values("Date")
+        )
+
+    combined_filename = " + ".join(filenames) if len(filenames) > 1 else filenames[0]
+    meta = extract_metadata(merged)
 
     # Deactivate all previous datasets
     await db.execute(update(Dataset).values(is_active=False))
 
     # Create new dataset record
     dataset = Dataset(
-        filename=file.filename,
+        filename=combined_filename,
         row_count=meta["row_count"],
         date_min=meta["date_min"],
         date_max=meta["date_max"],
@@ -57,7 +82,7 @@ async def upload_dataset(
                 obs_date=row["Date"].date(),
                 volume=float(row["Volume"]),
             )
-            for _, row in df.iterrows()
+            for _, row in merged.iterrows()
         ]
     )
     await db.commit()
@@ -88,6 +113,20 @@ async def list_datasets(db: AsyncSession = Depends(get_db)):
         )
         for d in result.scalars().all()
     ]
+
+
+@router.delete("/reset", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_all_data(db: AsyncSession = Depends(get_db)):
+    """Hard-delete all data: forecasts, backtest results, training runs, observations, datasets, configs."""
+    # Delete in dependency order (children before parents)
+    await db.execute(delete(BacktestResult))
+    await db.execute(delete(Forecast))
+    await db.execute(delete(TrainingRun))
+    await db.execute(delete(ChannelObservation))
+    await db.execute(delete(Dataset))
+    await db.execute(delete(ChannelConfig))
+    await db.execute(delete(MonthlyTarget))
+    await db.commit()
 
 
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
