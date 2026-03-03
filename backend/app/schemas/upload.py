@@ -12,6 +12,7 @@ class DatasetOut(BaseModel):
     channels: list[str]
     date_min: date
     date_max: date
+    is_hourly: bool = False
 
     model_config = {"from_attributes": True}
 

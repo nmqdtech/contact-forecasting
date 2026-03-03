@@ -8,11 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.config import settings
+from app.db.database import AsyncSessionLocal
+from app.db.init_admin import init_admin
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Nothing to initialise at startup for Phase 1
+    async with AsyncSessionLocal() as db:
+        await init_admin(db)
     yield
 
 

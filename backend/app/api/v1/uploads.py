@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.data_processor import DataValidationError, extract_metadata, parse_excel
+from app.core.data_processor import DataValidationError, extract_metadata, parse_file
 from app.db.database import get_db
 from app.models.backtest_result import BacktestResult
 from app.models.channel_config import ChannelConfig
@@ -21,13 +21,15 @@ from app.schemas.upload import DatasetOut, DatasetSummary
 
 router = APIRouter()
 
+ALLOWED_EXTENSIONS = (".xlsx", ".xls", ".csv")
+
 
 @router.post("", response_model=DatasetOut, status_code=status.HTTP_201_CREATED)
 async def upload_dataset(
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse one or more Excel files, merge them, persist observations, and activate the dataset."""
+    """Parse one or more Excel/CSV files, merge them, persist observations, and activate the dataset."""
     if not files:
         raise HTTPException(422, "At least one file is required")
 
@@ -35,25 +37,35 @@ async def upload_dataset(
     filenames: list[str] = []
 
     for file in files:
-        if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
-            raise HTTPException(422, f"{file.filename!r}: only .xlsx / .xls files are supported")
+        fname = file.filename or ""
+        if not fname.lower().endswith(ALLOWED_EXTENSIONS):
+            raise HTTPException(
+                422,
+                f"{fname!r}: only {', '.join(ALLOWED_EXTENSIONS)} files are supported",
+            )
         content = await file.read()
         try:
-            df = parse_excel(content)
+            df = parse_file(content, fname)
         except DataValidationError as exc:
-            raise HTTPException(422, f"{file.filename}: {exc}") from exc
+            raise HTTPException(422, f"{fname}: {exc}") from exc
         frames.append(df)
-        filenames.append(file.filename)
+        filenames.append(fname)
 
-    # Merge: sum volume for same (Channel, Date) across files
+    # Detect if any file is hourly (all must agree)
+    is_hourly = "Hour" in frames[0].columns
+    if len(frames) > 1 and any(("Hour" in f.columns) != is_hourly for f in frames[1:]):
+        raise HTTPException(422, "Cannot mix hourly and daily files in the same upload")
+
+    # Merge: sum volume for same (Channel, Date[, Hour]) across files
     if len(frames) == 1:
         merged = frames[0]
     else:
         raw = pd.concat(frames, ignore_index=True)
+        group_cols = ["Channel", "Date", "Hour"] if is_hourly else ["Channel", "Date"]
         merged = (
-            raw.groupby(["Channel", "Date"], as_index=False)["Volume"]
+            raw.groupby(group_cols, as_index=False)["Volume"]
             .sum()
-            .sort_values("Date")
+            .sort_values(["Date"] + (["Hour"] if is_hourly else []))
         )
 
     combined_filename = " + ".join(filenames) if len(filenames) > 1 else filenames[0]
@@ -69,22 +81,24 @@ async def upload_dataset(
         date_min=meta["date_min"],
         date_max=meta["date_max"],
         is_active=True,
+        is_hourly=is_hourly,
     )
     db.add(dataset)
     await db.flush()  # populate dataset.id
 
     # Insert observations
-    db.add_all(
-        [
+    obs_list = []
+    for _, row in merged.iterrows():
+        obs_list.append(
             ChannelObservation(
                 dataset_id=dataset.id,
                 channel=str(row["Channel"]),
                 obs_date=row["Date"].date(),
+                obs_hour=int(row["Hour"]) if is_hourly else None,
                 volume=float(row["Volume"]),
             )
-            for _, row in merged.iterrows()
-        ]
-    )
+        )
+    db.add_all(obs_list)
     await db.commit()
     await db.refresh(dataset)
 
@@ -96,6 +110,7 @@ async def upload_dataset(
         channels=meta["channels"],
         date_min=dataset.date_min,
         date_max=dataset.date_max,
+        is_hourly=is_hourly,
     )
 
 
@@ -118,7 +133,6 @@ async def list_datasets(db: AsyncSession = Depends(get_db)):
 @router.delete("/reset", status_code=status.HTTP_204_NO_CONTENT)
 async def reset_all_data(db: AsyncSession = Depends(get_db)):
     """Hard-delete all data: forecasts, backtest results, training runs, observations, datasets, configs."""
-    # Delete in dependency order (children before parents)
     await db.execute(delete(BacktestResult))
     await db.execute(delete(Forecast))
     await db.execute(delete(TrainingRun))

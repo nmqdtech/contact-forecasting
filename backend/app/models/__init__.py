@@ -5,6 +5,7 @@ from app.models.monthly_target import MonthlyTarget
 from app.models.training_run import TrainingRun
 from app.models.forecast import Forecast
 from app.models.backtest_result import BacktestResult
+from app.models.user import User
 
 __all__ = [
     "Dataset",
@@ -14,4 +15,5 @@ __all__ = [
     "TrainingRun",
     "Forecast",
     "BacktestResult",
+    "User",
 ]

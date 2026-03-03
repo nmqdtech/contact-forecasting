@@ -198,13 +198,20 @@ class ContactForecaster:
         ts = channel_data.set_index("Date")["Volume"].astype(float)
         monthly_factors = self._compute_monthly_factors(ts)
 
-        # Prophet dataframe — use raw data, no reindexing needed
+        # Prophet dataframe — strip zero-volume rows (multiplicative mode breaks on zeros)
         prophet_df = pd.DataFrame(
             {
                 "ds": pd.to_datetime(channel_data["Date"]),
                 "y": channel_data["Volume"].astype(float),
             }
         )
+        zero_count = (prophet_df["y"] == 0).sum()
+        prophet_df = prophet_df[prophet_df["y"] > 0].copy()
+        if zero_count > 0:
+            print(f"  Stripped {zero_count} zero-volume rows before Prophet fit")
+
+        if len(prophet_df) < 20:
+            return False, f"Insufficient non-zero data for {channel} after stripping zeros"
 
         apply_holidays = channel in self.bank_holiday_config
         country_code = self.bank_holiday_config.get(channel)
@@ -219,6 +226,8 @@ class ContactForecaster:
         # Decide whether to enable yearly seasonality (need ≥ 6 months)
         date_span_days = (channel_data["Date"].max() - channel_data["Date"].min()).days
         enable_yearly = date_span_days >= 180
+        # For short datasets use additive mode — multiplicative needs scale data
+        seasonality_mode = "multiplicative" if date_span_days >= 180 else "additive"
 
         print(f"\n── Training: {channel} (Prophet) ──")
         print(
@@ -226,24 +235,38 @@ class ContactForecaster:
         )
         print(f"  Holidays     : {country_code or 'None'}")
         print(f"  Yearly seas. : {enable_yearly}  ({date_span_days} days of data)")
+        print(f"  Mode         : {seasonality_mode}")
 
-        model = Prophet(
-            yearly_seasonality=enable_yearly,
-            weekly_seasonality=True,
-            daily_seasonality=False,
-            seasonality_mode="multiplicative",   # scales with volume level
-            changepoint_prior_scale=0.05,        # moderate trend flexibility
-            seasonality_prior_scale=10.0,        # allow seasonality to be expressive
-            interval_width=0.95,
-            holidays=holidays_df,
-        )
+        def _build_prophet(mode: str) -> "Prophet":
+            m = Prophet(
+                yearly_seasonality=enable_yearly,
+                weekly_seasonality=True,
+                daily_seasonality=False,
+                seasonality_mode=mode,
+                changepoint_prior_scale=0.05,
+                seasonality_prior_scale=10.0,
+                n_changepoints=25,
+                interval_width=0.95,
+                holidays=holidays_df,
+            )
+            if custom_seasonality and date_span_days >= 60:
+                m.add_seasonality(name="monthly", period=30.5, fourier_order=5)
+            return m
 
-        # Custom monthly Fourier seasonality (captures month-of-year patterns)
-        if custom_seasonality and date_span_days >= 60:
-            model.add_seasonality(name="monthly", period=30.5, fourier_order=5)
-
+        model = _build_prophet(seasonality_mode)
         try:
             model.fit(prophet_df)
+        except (ValueError, RuntimeError) as exc:
+            if seasonality_mode == "multiplicative":
+                print(f"  Stan convergence failed ({exc}), retrying with additive mode")
+                seasonality_mode = "additive"
+                model = _build_prophet(seasonality_mode)
+                try:
+                    model.fit(prophet_df)
+                except Exception as exc2:
+                    return False, f"Prophet training failed for {channel}: {exc2}"
+            else:
+                return False, f"Prophet training failed for {channel}: {exc}"
         except Exception as exc:
             return False, f"Prophet training failed for {channel}: {exc}"
 
@@ -259,7 +282,7 @@ class ContactForecaster:
             "enable_yearly": enable_yearly,
             "custom_seasonality": custom_seasonality and date_span_days >= 60,
             # service compatibility fields
-            "config": ["prophet", "multiplicative", f"yearly={enable_yearly}"],
+            "config": ["prophet", seasonality_mode, f"yearly={enable_yearly}"],
             "aic": 0.0,  # AIC not applicable for Prophet
         }
 
@@ -333,7 +356,13 @@ class ContactForecaster:
         if len(prophet_df) <= holdout_days + 14:
             return None
 
-        train_df = prophet_df.iloc[:-holdout_days].copy()
+        # Strip zeros from the prophet_df slice (same as main training)
+        prophet_df_nz = prophet_df[prophet_df["y"] > 0].copy()
+        if len(prophet_df_nz) <= holdout_days + 14:
+            return None
+
+        train_df = prophet_df_nz.iloc[:-holdout_days].copy()
+        # test_df still uses original prophet_df to compare predictions against actuals
         test_df = prophet_df.iloc[-holdout_days:].copy()
 
         # Build holidays for the backtest period
@@ -346,22 +375,33 @@ class ContactForecaster:
         date_span = (train_df["ds"].max() - train_df["ds"].min()).days
         enable_yearly = date_span >= 180
         enable_monthly = date_span >= 60
+        bt_mode = "multiplicative" if date_span >= 180 else "additive"
 
-        try:
-            bt_model = Prophet(
+        def _build_bt(mode: str):
+            m = Prophet(
                 yearly_seasonality=enable_yearly,
                 weekly_seasonality=True,
                 daily_seasonality=False,
-                seasonality_mode="multiplicative",
+                seasonality_mode=mode,
                 changepoint_prior_scale=0.05,
                 seasonality_prior_scale=10.0,
+                n_changepoints=25,
                 interval_width=0.95,
                 holidays=holidays_df,
             )
             if enable_monthly:
-                bt_model.add_seasonality(name="monthly", period=30.5, fourier_order=5)
+                m.add_seasonality(name="monthly", period=30.5, fourier_order=5)
+            return m
 
-            bt_model.fit(train_df)
+        try:
+            bt_model = _build_bt(bt_mode)
+            try:
+                bt_model.fit(train_df)
+            except (ValueError, RuntimeError):
+                if bt_mode == "multiplicative":
+                    bt_mode = "additive"
+                    bt_model = _build_bt(bt_mode)
+                    bt_model.fit(train_df)
 
             future_df = pd.DataFrame({"ds": test_df["ds"].values})
             bt_raw = bt_model.predict(future_df)

@@ -8,6 +8,7 @@ export interface DatasetOut {
   channels: string[]
   date_min: string
   date_max: string
+  is_hourly: boolean
 }
 
 export interface DatasetSummary {

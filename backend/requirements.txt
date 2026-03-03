@@ -26,3 +26,8 @@ python-dateutil==2.8.2
 
 # PDF report generation
 matplotlib>=3.8.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+email-validator>=2.0.0

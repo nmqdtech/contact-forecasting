@@ -10,7 +10,7 @@ interface FileUploaderProps {
 export default function FileUploader({
   onFiles,
   loading,
-  accept = '.xlsx,.xls',
+  accept = '.xlsx,.xls,.csv',
 }: FileUploaderProps) {
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -57,13 +57,14 @@ export default function FileUploader({
       />
       <Upload className="w-10 h-10 mx-auto mb-4 text-slate-400 dark:text-slate-500" />
       <p className="font-semibold text-slate-700 dark:text-slate-300">
-        {loading ? 'Uploading…' : 'Drop Excel file(s) here, or click to browse'}
+        {loading ? 'Uploading…' : 'Drop file(s) here, or click to browse'}
       </p>
       <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-        Accepts <code>.xlsx</code> / <code>.xls</code> — single or multiple files merged automatically
+        Accepts <code>.xlsx</code> / <code>.xls</code> / <code>.csv</code> — single or multiple files merged automatically
       </p>
       <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-        Requires <strong>Date</strong>, <strong>Channel</strong>, <strong>Volume</strong> columns
+        Daily: <strong>Date</strong>, <strong>Channel</strong>, <strong>Volume</strong> &nbsp;|&nbsp;
+        Hourly: add <strong>Time</strong> column (HH:MM)
       </p>
     </div>
   )
