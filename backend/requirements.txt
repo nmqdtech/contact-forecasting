@@ -13,9 +13,10 @@ asyncpg==0.29.0
 psycopg2-binary==2.9.9
 alembic==1.13.1
 
-# Forecasting (unchanged from Streamlit app)
+# Forecasting — Prophet (multi-seasonal, multiplicative, bank holidays)
 pandas==2.1.4
 numpy==1.26.3
+prophet>=1.1.5
 statsmodels==0.14.1
 holidays==0.42
 
