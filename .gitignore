@@ -24,7 +24,7 @@ wheels/
 *.egg
 
 # Streamlit
-.streamlit/secrets.toml
+.streamlit/
 
 # IDEs
 .vscode/
@@ -45,6 +45,12 @@ data/
 
 # Logs
 *.log
+
+# Office lock files
+.~lock.*
+
+# Backups
+backups/
 
 # Environment
 .env

@@ -16,22 +16,19 @@ jobs:
           host:     ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key:      ${{ secrets.DO_SSH_KEY }}
+          command_timeout: 30m
           script: |
             set -e
-            cd /opt/forecasting
-
-            echo "==> Pulling latest code"
+            cd /home/najib/forecasting2
             git pull origin main
-
-            echo "==> Building updated images"
-            docker compose -f docker-compose.prod.yml build --no-cache backend frontend
-
-            echo "==> Restarting services"
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-
-            echo "==> Waiting for backend health"
-            sleep 15
-            docker compose -f docker-compose.prod.yml exec -T backend \
-              curl -sf http://localhost:8000/health || true
-
-            echo "==> Done — deployed successfully"
+            docker compose build backend
+            docker compose build frontend
+            docker compose up -d --remove-orphans
+            # Wait for backend health (up to 90s)
+            for i in $(seq 1 18); do
+              sleep 5
+              docker inspect --format='{{.State.Health.Status}}' forecasting-backend \
+                | grep -q healthy && echo "Backend healthy" && break
+              echo "Waiting... ($((i*5))s)"
+            done
+            echo "Deploy complete"

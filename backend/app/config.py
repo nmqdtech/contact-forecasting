@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
 
+    # Observability
+    SENTRY_DSN: str = ""
+    DEBUG: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

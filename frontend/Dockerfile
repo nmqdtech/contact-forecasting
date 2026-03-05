@@ -6,6 +6,8 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
+ARG VITE_SENTRY_DSN=""
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN
 RUN npm run build
 
 # ── Stage 2: Serve ────────────────────────────────────────────────────────────
