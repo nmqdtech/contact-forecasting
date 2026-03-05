@@ -20,7 +20,7 @@ export default function Login() {
     setLoading(true)
     try {
       const res = await login(username, password)
-      if ('requires_2fa' in res && res.requires_2fa) {
+      if (!('access_token' in res)) {
         setTempToken(res.temp_token)
       } else {
         const { access_token } = res
