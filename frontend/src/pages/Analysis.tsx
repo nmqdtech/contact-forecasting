@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -158,43 +158,6 @@ function ModeTab({
   )
 }
 
-function WeekSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const parsed = parseWeekInput(value)
-  const currentYear = new Date().getFullYear()
-  const years = Array.from({ length: 4 }, (_, i) => currentYear - 2 + i)
-
-  const handleYear = (year: number) => {
-    const week = parsed?.week ?? 1
-    onChange(`${year}-W${String(week).padStart(2, '0')}`)
-  }
-
-  const handleWeek = (week: number) => {
-    const year = parsed?.year ?? currentYear
-    onChange(`${year}-W${String(week).padStart(2, '0')}`)
-  }
-
-  return (
-    <div className="flex gap-1">
-      <select
-        value={parsed?.year ?? currentYear}
-        onChange={(e) => handleYear(Number(e.target.value))}
-        className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-      >
-        {years.map((y) => <option key={y} value={y}>{y}</option>)}
-      </select>
-      <select
-        value={parsed?.week ?? 1}
-        onChange={(e) => handleWeek(Number(e.target.value))}
-        className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-      >
-        {Array.from({ length: 53 }, (_, i) => i + 1).map((w) => (
-          <option key={w} value={w}>{`W${String(w).padStart(2, '0')}`}</option>
-        ))}
-      </select>
-    </div>
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Analysis() {
@@ -257,15 +220,41 @@ export default function Analysis() {
   const multiChangePct = multiTotalA > 0 ? ((multiTotalB - multiTotalA) / multiTotalA) * 100 : null
 
   // ── Section 3: Monthly forecast vs historical ───────────────────────────────
+  const allHistoricalYears = useMemo(() =>
+    [...new Set((monthly?.historical ?? []).map((h) => h.month.slice(0, 4)))].sort(),
+    [monthly])
+  const allForecastYears = useMemo(() =>
+    [...new Set((monthly?.forecast ?? []).map((f) => f.month.slice(0, 4)))].sort(),
+    [monthly])
+  const allMonthlyYears = useMemo(() =>
+    [...new Set([...allHistoricalYears, ...allForecastYears])].sort(),
+    [allHistoricalYears, allForecastYears])
+
+  const [monthYearA, setMonthYearA] = useState('')
+  const [monthYearB, setMonthYearB] = useState('')
+
+  useEffect(() => {
+    if (allHistoricalYears.length && !monthYearA) setMonthYearA(allHistoricalYears.at(-1)!)
+  }, [allHistoricalYears])
+  useEffect(() => {
+    if (allForecastYears.length && !monthYearB) setMonthYearB(allForecastYears[0]!)
+  }, [allForecastYears])
+
   const monthlyChartData = useMemo(() => {
-    if (!monthly) return []
+    if (!monthly || !monthYearA || !monthYearB) return []
     const histMap = new Map(monthly.historical.map((h) => [h.month, h.total]))
-    return monthly.forecast.map((f) => ({
-      month: MONTH_ABBR[Number(f.month.slice(5, 7)) - 1] + ' ' + f.month.slice(0, 4),
-      Forecast: Math.round(f.total),
-      Historical: Math.round(histMap.get(f.month) ?? 0) || undefined,
-    }))
-  }, [monthly])
+    const fcstMap = new Map(monthly.forecast.map((f) => [f.month, f.total]))
+    return MONTH_ABBR.map((name, i) => {
+      const mm = String(i + 1).padStart(2, '0')
+      const valA = histMap.get(`${monthYearA}-${mm}`) ?? null
+      const valB = fcstMap.get(`${monthYearB}-${mm}`) ?? histMap.get(`${monthYearB}-${mm}`) ?? null
+      return {
+        month: name,
+        A: valA != null ? Math.round(valA) : undefined,
+        B: valB != null ? Math.round(valB) : undefined,
+      }
+    }).filter((r) => r.A !== undefined || r.B !== undefined)
+  }, [monthly, monthYearA, monthYearB])
 
   if (!channels || channels.length === 0) {
     return (
@@ -316,26 +305,36 @@ export default function Analysis() {
             </h2>
 
             {/* Week pickers */}
-            <div className="flex flex-wrap gap-4 mb-4">
+            <div className="flex flex-wrap gap-x-6 gap-y-3 mb-4 items-end">
               <div className="flex items-center gap-2">
-                <span
-                  className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
-                  style={{ background: '#2563EB' }}
+                <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#2563EB' }} />
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Week A</label>
+                <input
+                  type="number" value={parsedA?.year ?? today.getFullYear()} min={2000} max={2099}
+                  onChange={(e) => setWeekA(`${e.target.value}-W${String(parsedA?.week ?? 1).padStart(2, '0')}`)}
+                  className="w-20 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
                 />
-                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-                  Week A
-                </label>
-                <WeekSelector value={weekA} onChange={setWeekA} />
+                <span className="text-xs text-slate-400">W</span>
+                <input
+                  type="number" value={parsedA?.week ?? 1} min={1} max={53}
+                  onChange={(e) => setWeekA(`${parsedA?.year ?? today.getFullYear()}-W${String(Number(e.target.value)).padStart(2, '0')}`)}
+                  className="w-14 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1 text-center"
+                />
               </div>
               <div className="flex items-center gap-2">
-                <span
-                  className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
-                  style={{ background: '#94A3B8' }}
+                <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#94A3B8' }} />
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Week B</label>
+                <input
+                  type="number" value={parsedB?.year ?? today.getFullYear()} min={2000} max={2099}
+                  onChange={(e) => setWeekB(`${e.target.value}-W${String(parsedB?.week ?? 1).padStart(2, '0')}`)}
+                  className="w-20 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
                 />
-                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-                  Week B
-                </label>
-                <WeekSelector value={weekB} onChange={setWeekB} />
+                <span className="text-xs text-slate-400">W</span>
+                <input
+                  type="number" value={parsedB?.week ?? 1} min={1} max={53}
+                  onChange={(e) => setWeekB(`${parsedB?.year ?? today.getFullYear()}-W${String(Number(e.target.value)).padStart(2, '0')}`)}
+                  className="w-14 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1 text-center"
+                />
               </div>
             </div>
 
@@ -569,62 +568,86 @@ export default function Analysis() {
           </Card>
 
           {/* ── SECTION 3: Monthly Forecast vs Historical ───────────────────── */}
-          {monthlyChartData.length > 0 && (
+          {(monthly || monthlyChartData.length > 0) && (
             <Card className="p-5">
               <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4">
-                Monthly: Forecast vs Historical — {channel}
+                Monthly Comparison — {channel}
               </h2>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={monthlyChartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 10 }}
-                    interval={0}
-                    angle={-35}
-                    textAnchor="end"
-                    height={52}
-                  />
-                  <YAxis tickFormatter={fmt} width={72} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => fmt(v)} />
-                  <Legend />
-                  <Bar dataKey="Historical" fill="#2563EB" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="Forecast"   fill="#F59E0B" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
 
-              <div className="overflow-x-auto mt-5">
-                <table className="min-w-full text-sm text-slate-700 dark:text-slate-300">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">
-                      <th className="pb-2 pr-4 text-left">Month</th>
-                      <th className="pb-2 px-4 text-right">Historical</th>
-                      <th className="pb-2 px-4 text-right">Forecast</th>
-                      <th className="pb-2 pl-4 text-right">Change</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {monthlyChartData.map((row) => {
-                      const chg =
-                        row.Historical && row.Historical > 0
-                          ? ((row.Forecast - row.Historical) / row.Historical) * 100
-                          : null
-                      return (
-                        <tr key={row.month} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          <td className="py-1.5 pr-4 font-medium">{row.month}</td>
-                          <td className="py-1.5 px-4 text-right tabular-nums">
-                            {row.Historical ? fmt(row.Historical) : '—'}
-                          </td>
-                          <td className="py-1.5 px-4 text-right tabular-nums">{fmt(row.Forecast)}</td>
-                          <td className={`py-1.5 pl-4 text-right tabular-nums ${changeCls(chg)}`}>
-                            {chg === null ? '—' : fmtPct(chg)}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              {/* Year selectors */}
+              <div className="flex flex-wrap gap-x-6 gap-y-3 mb-5 items-end">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#2563EB' }} />
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Year A</label>
+                  <select
+                    value={monthYearA}
+                    onChange={(e) => setMonthYearA(e.target.value)}
+                    className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                  >
+                    {allHistoricalYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#F59E0B' }} />
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Year B</label>
+                  <select
+                    value={monthYearB}
+                    onChange={(e) => setMonthYearB(e.target.value)}
+                    className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                  >
+                    {allMonthlyYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
               </div>
+
+              {monthlyChartData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={monthlyChartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11 }} interval={0} />
+                      <YAxis tickFormatter={fmt} width={72} tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v: number) => fmt(v)} />
+                      <Legend formatter={(v) => (v === 'A' ? monthYearA : monthYearB)} />
+                      <Bar dataKey="A" fill="#2563EB" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="B" fill="#F59E0B" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+
+                  <div className="overflow-x-auto mt-5">
+                    <table className="min-w-full text-sm text-slate-700 dark:text-slate-300">
+                      <thead>
+                        <tr className="border-b border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                          <th className="pb-2 pr-4 text-left">Month</th>
+                          <th className="pb-2 px-4 text-right">{monthYearA}</th>
+                          <th className="pb-2 px-4 text-right">{monthYearB}</th>
+                          <th className="pb-2 pl-4 text-right">Change</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {monthlyChartData.map((row) => {
+                          const chg =
+                            row.A && row.A > 0 && row.B != null
+                              ? ((row.B - row.A) / row.A) * 100
+                              : null
+                          return (
+                            <tr key={row.month} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                              <td className="py-1.5 pr-4 font-medium">{row.month}</td>
+                              <td className="py-1.5 px-4 text-right tabular-nums">{row.A != null ? fmt(row.A) : '—'}</td>
+                              <td className="py-1.5 px-4 text-right tabular-nums">{row.B != null ? fmt(row.B) : '—'}</td>
+                              <td className={`py-1.5 pl-4 text-right tabular-nums ${changeCls(chg)}`}>
+                                {chg === null ? '—' : fmtPct(chg)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-slate-400 dark:text-slate-500">No data for the selected years.</p>
+              )}
             </Card>
           )}
 

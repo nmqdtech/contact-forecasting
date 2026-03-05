@@ -1,4 +1,4 @@
-import { Activity, BarChart3, Download, Home, LineChart, LogOut, Settings, Shield, X } from 'lucide-react'
+import { Activity, BarChart3, Download, Home, LineChart, LogOut, Settings, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import ThemeToggle from './ThemeToggle'
 import { useAuthStore } from '../../store/useAuthStore'
@@ -79,22 +79,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </NavLink>
           ))}
 
-          {user?.is_admin && (
-            <NavLink
-              to="/admin"
-              onClick={onClose}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-400 hover:bg-white/10 hover:text-white'
-                }`
-              }
-            >
-              <Shield className="w-4 h-4 flex-shrink-0" />
-              Admin
-            </NavLink>
-          )}
         </nav>
 
         {/* Footer: user info + logout */}

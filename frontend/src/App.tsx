@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import ProtectedRoute from './components/layout/ProtectedRoute'
-import Admin from './pages/Admin'
 import Analysis from './pages/Analysis'
 import ChangePassword from './pages/ChangePassword'
 import Dashboard from './pages/Dashboard'
@@ -51,7 +50,7 @@ export default function App() {
                 <Route path="/analysis" element={<Analysis />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/export" element={<Export />} />
-                <Route path="/admin" element={<Admin />} />
+                <Route path="/admin" element={<Navigate to="/settings" replace />} />
               </Routes>
             </AppShell>
           </ProtectedRoute>

@@ -67,6 +67,10 @@ export async function updateUser(
   return res.data
 }
 
+export async function deleteUser(id: string): Promise<void> {
+  await client.delete(`/auth/users/${id}`)
+}
+
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   await client.post('/auth/me/password', {
     current_password: currentPassword,

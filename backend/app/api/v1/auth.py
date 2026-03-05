@@ -199,3 +199,19 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if user_id == admin.id:
+        raise HTTPException(400, "Cannot delete yourself")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    await db.delete(user)
+    await db.commit()
