@@ -234,7 +234,7 @@ export default function Analysis() {
   const [monthYearB, setMonthYearB] = useState('')
 
   useEffect(() => {
-    if (allHistoricalYears.length && !monthYearA) setMonthYearA(allHistoricalYears.at(-1)!)
+    if (allHistoricalYears.length && !monthYearA) setMonthYearA(allHistoricalYears[allHistoricalYears.length - 1])
   }, [allHistoricalYears])
   useEffect(() => {
     if (allForecastYears.length && !monthYearB) setMonthYearB(allForecastYears[0]!)
