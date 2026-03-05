@@ -1,11 +1,22 @@
+import { useState } from 'react'
 import { Download, FileSpreadsheet, FileText } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
-import { exportForecastsUrl, exportSummaryUrl } from '../api/forecasts'
+import { downloadForecasts, downloadReport, downloadSummary } from '../api/forecasts'
 import { useSummary } from '../hooks/useForecasts'
 
 export default function Export() {
   const { data: summary, isLoading } = useSummary()
+  const [downloading, setDownloading] = useState<string | null>(null)
+
+  async function handleDownload(key: string, fn: () => Promise<void>) {
+    setDownloading(key)
+    try {
+      await fn()
+    } finally {
+      setDownloading(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -28,11 +39,14 @@ export default function Export() {
               </p>
             </div>
           </div>
-          <a href={exportForecastsUrl()} download="forecasts.xlsx">
-            <Button variant="primary" className="w-full justify-center">
-              <Download className="w-4 h-4" /> Download forecasts.xlsx
-            </Button>
-          </a>
+          <Button
+            variant="primary"
+            className="w-full justify-center"
+            loading={downloading === 'forecasts'}
+            onClick={() => handleDownload('forecasts', downloadForecasts)}
+          >
+            <Download className="w-4 h-4" /> Download forecasts.xlsx
+          </Button>
         </Card>
 
         <Card className="p-5 flex flex-col gap-4">
@@ -45,11 +59,14 @@ export default function Export() {
               </p>
             </div>
           </div>
-          <a href={exportSummaryUrl()} download="summary.xlsx">
-            <Button variant="secondary" className="w-full justify-center">
-              <Download className="w-4 h-4" /> Download summary.xlsx
-            </Button>
-          </a>
+          <Button
+            variant="secondary"
+            className="w-full justify-center"
+            loading={downloading === 'summary'}
+            onClick={() => handleDownload('summary', downloadSummary)}
+          >
+            <Download className="w-4 h-4" /> Download summary.xlsx
+          </Button>
         </Card>
 
         <Card className="p-5 flex flex-col gap-4">
@@ -62,11 +79,14 @@ export default function Export() {
               </p>
             </div>
           </div>
-          <a href="/api/v1/exports/report" download="forecast-report.pdf">
-            <Button variant="secondary" className="w-full justify-center">
-              <Download className="w-4 h-4" /> Download forecast-report.pdf
-            </Button>
-          </a>
+          <Button
+            variant="secondary"
+            className="w-full justify-center"
+            loading={downloading === 'report'}
+            onClick={() => handleDownload('report', downloadReport)}
+          >
+            <Download className="w-4 h-4" /> Download forecast-report.pdf
+          </Button>
         </Card>
       </div>
 

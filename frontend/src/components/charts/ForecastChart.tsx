@@ -16,20 +16,11 @@ import type { ForecastPoint, ObservationPoint } from '../../types'
 interface Props {
   data: ForecastPoint[]
   historical?: ObservationPoint[]
-  showCI: boolean
-  showTrend: boolean
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 })
 
-function rollingMean(values: number[], window: number, idx: number): number | undefined {
-  const start = Math.max(0, idx - Math.floor(window / 2))
-  const end = Math.min(values.length - 1, idx + Math.floor(window / 2))
-  const slice = values.slice(start, end + 1)
-  return slice.reduce((a, b) => a + b, 0) / slice.length
-}
-
-export default function ForecastChart({ data, historical, showCI, showTrend }: Props) {
+export default function ForecastChart({ data, historical }: Props) {
   const theme = useAppStore((s) => s.theme)
   const chartSettings = useAppStore((s) => s.chartSettings)
   const { historicalColor, forecastColor, showDataLabels, yAxisScale } = chartSettings
@@ -40,15 +31,13 @@ export default function ForecastChart({ data, historical, showCI, showTrend }: P
   const tooltipBorder = theme === 'dark' ? '#334155' : '#E2E8F0'
 
   // Build merged chart array
-  const histVolumes = (historical ?? []).map((d) => d.volume)
   const merged: Record<string, unknown>[] = []
 
   if (historical && historical.length > 0) {
-    historical.forEach((d, i) => {
+    historical.forEach((d) => {
       merged.push({
         date: d.date,
         historical: d.volume,
-        trend: showTrend ? rollingMean(histVolumes, 7, i) : undefined,
       })
     })
   }
@@ -101,33 +90,28 @@ export default function ForecastChart({ data, historical, showCI, showTrend }: P
             if (name === 'yhat') return [fmt(value), 'Forecast']
             if (name === 'lower') return [fmt(value), 'Lower 95%']
             if (name === 'ci_band') return [fmt(value), 'CI Width']
-            if (name === 'trend') return [fmt(value), '7-day Trend']
             return [fmt(value), name]
           }}
         />
 
-        {/* CI ribbon: transparent base + colored band stacked on top */}
-        {showCI && (
-          <>
-            <Area
-              dataKey="lower"
-              stackId="ci"
-              stroke="none"
-              fill="transparent"
-              legendType="none"
-              isAnimationActive={false}
-            />
-            <Area
-              dataKey="ci_band"
-              stackId="ci"
-              stroke="none"
-              fill={forecastColor}
-              fillOpacity={0.18}
-              legendType="none"
-              isAnimationActive={false}
-            />
-          </>
-        )}
+        {/* CI ribbon */}
+        <Area
+          dataKey="lower"
+          stackId="ci"
+          stroke="none"
+          fill="transparent"
+          legendType="none"
+          isAnimationActive={false}
+        />
+        <Area
+          dataKey="ci_band"
+          stackId="ci"
+          stroke="none"
+          fill={forecastColor}
+          fillOpacity={0.18}
+          legendType="none"
+          isAnimationActive={false}
+        />
 
         {/* Historical line */}
         {historical && historical.length > 0 && (
@@ -142,20 +126,6 @@ export default function ForecastChart({ data, historical, showCI, showTrend }: P
           >
             {showDataLabels && <LabelList dataKey="historical" position="top" style={{ fontSize: 9, fill: textColor }} />}
           </Line>
-        )}
-
-        {/* 7-day rolling trend line */}
-        {showTrend && historical && historical.length > 0 && (
-          <Line
-            dataKey="trend"
-            stroke="#94A3B8"
-            strokeWidth={1.5}
-            strokeDasharray="4 2"
-            dot={false}
-            name="trend"
-            isAnimationActive={false}
-            connectNulls
-          />
         )}
 
         {/* Forecast line */}

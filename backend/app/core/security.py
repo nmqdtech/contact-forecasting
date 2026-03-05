@@ -35,6 +35,24 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
 
 
+def create_2fa_temp_token(user_id: str) -> str:
+    return create_access_token(
+        {"sub": user_id, "scope": "2fa_pending"},
+        expires_delta=timedelta(minutes=5),
+    )
+
+
+def verify_2fa_temp_token(token: str) -> str | None:
+    """Returns user_id string if token is valid 2fa_pending scope, else None."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if payload.get("scope") != "2fa_pending":
+            return None
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
@@ -49,7 +67,7 @@ async def get_current_user(
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
         user_id: str | None = payload.get("sub")
-        if user_id is None:
+        if user_id is None or payload.get("scope") == "2fa_pending":
             raise credentials_exc
     except JWTError:
         raise credentials_exc

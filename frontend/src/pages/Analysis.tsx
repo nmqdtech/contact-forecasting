@@ -158,6 +158,43 @@ function ModeTab({
   )
 }
 
+function WeekSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parsed = parseWeekInput(value)
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: 4 }, (_, i) => currentYear - 2 + i)
+
+  const handleYear = (year: number) => {
+    const week = parsed?.week ?? 1
+    onChange(`${year}-W${String(week).padStart(2, '0')}`)
+  }
+
+  const handleWeek = (week: number) => {
+    const year = parsed?.year ?? currentYear
+    onChange(`${year}-W${String(week).padStart(2, '0')}`)
+  }
+
+  return (
+    <div className="flex gap-1">
+      <select
+        value={parsed?.year ?? currentYear}
+        onChange={(e) => handleYear(Number(e.target.value))}
+        className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+      >
+        {years.map((y) => <option key={y} value={y}>{y}</option>)}
+      </select>
+      <select
+        value={parsed?.week ?? 1}
+        onChange={(e) => handleWeek(Number(e.target.value))}
+        className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+      >
+        {Array.from({ length: 53 }, (_, i) => i + 1).map((w) => (
+          <option key={w} value={w}>{`W${String(w).padStart(2, '0')}`}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Analysis() {
@@ -217,7 +254,7 @@ export default function Analysis() {
 
   const multiTotalA = multiWeekData.reduce((s, r) => s + r.A, 0)
   const multiTotalB = multiWeekData.reduce((s, r) => s + r.B, 0)
-  const multiChangePct = multiTotalB > 0 ? ((multiTotalA - multiTotalB) / multiTotalB) * 100 : null
+  const multiChangePct = multiTotalA > 0 ? ((multiTotalB - multiTotalA) / multiTotalA) * 100 : null
 
   // ── Section 3: Monthly forecast vs historical ───────────────────────────────
   const monthlyChartData = useMemo(() => {
@@ -288,12 +325,7 @@ export default function Analysis() {
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                   Week A
                 </label>
-                <input
-                  type="week"
-                  value={weekA}
-                  onChange={(e) => setWeekA(e.target.value)}
-                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-                />
+                <WeekSelector value={weekA} onChange={setWeekA} />
               </div>
               <div className="flex items-center gap-2">
                 <span
@@ -303,12 +335,7 @@ export default function Analysis() {
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                   Week B
                 </label>
-                <input
-                  type="week"
-                  value={weekB}
-                  onChange={(e) => setWeekB(e.target.value)}
-                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-                />
+                <WeekSelector value={weekB} onChange={setWeekB} />
               </div>
             </div>
 
@@ -453,7 +480,7 @@ export default function Analysis() {
                 <StatChip label={`Total ${yearB}`} value={fmt(multiTotalB)} />
                 {multiChangePct !== null && (
                   <span className={changeCls(multiChangePct) + ' text-sm'}>
-                    {fmtPct(multiChangePct)} vs {yearB}
+                    {fmtPct(multiChangePct)} vs {yearA}
                   </span>
                 )}
               </div>
@@ -514,7 +541,7 @@ export default function Analysis() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {multiWeekData.map((row) => {
-                      const chg = row.B > 0 ? ((row.A - row.B) / row.B) * 100 : null
+                      const chg = row.A > 0 ? ((row.B - row.A) / row.A) * 100 : null
                       return (
                         <tr key={row.week} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                           <td className="py-1.5 pr-4 font-medium tabular-nums">{row.week}</td>

@@ -40,10 +40,22 @@ export const getSummary = async (): Promise<SummaryRow[]> => {
   return data
 }
 
-/** Returns a URL string for direct browser download */
-export const exportForecastsUrl = (channels?: string[]): string => {
-  const params = channels?.map((c) => `channels=${encodeURIComponent(c)}`).join('&')
-  return `/api/v1/exports/forecasts${params ? `?${params}` : ''}`
+async function fetchBlob(url: string, filename: string) {
+  const res = await client.get(url, { responseType: 'blob' })
+  const href = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(href)
 }
 
-export const exportSummaryUrl = (): string => '/api/v1/exports/summary'
+export const downloadForecasts = (channels?: string[]) => {
+  const params = channels?.map((c) => `channels=${encodeURIComponent(c)}`).join('&')
+  const url = `/exports/forecasts${params ? `?${params}` : ''}`
+  return fetchBlob(url, 'forecasts.xlsx')
+}
+
+export const downloadSummary = () => fetchBlob('/exports/summary', 'summary.xlsx')
+
+export const downloadReport = () => fetchBlob('/exports/report', 'forecast-report.pdf')

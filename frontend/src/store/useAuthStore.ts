@@ -8,6 +8,7 @@ interface AuthState {
   setAuth: (token: string, user: UserOut) => void
   logout: () => void
   clearMustChangePassword: () => void
+  setTotpEnabled: (enabled: boolean) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -20,6 +21,10 @@ export const useAuthStore = create<AuthState>()(
       clearMustChangePassword: () =>
         set((s) =>
           s.user ? { user: { ...s.user, must_change_password: false } } : {}
+        ),
+      setTotpEnabled: (enabled) =>
+        set((s) =>
+          s.user ? { user: { ...s.user, totp_enabled: enabled } } : {}
         ),
     }),
     { name: 'forecasting-auth' }

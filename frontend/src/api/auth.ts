@@ -7,18 +7,34 @@ export interface UserOut {
   is_admin: boolean
   is_active: boolean
   must_change_password: boolean
+  totp_enabled: boolean
   created_at: string
 }
 
-export interface LoginResponse {
+export interface LoginSuccess {
   access_token: string
   token_type: string
 }
+
+export interface LoginTwoFactor {
+  requires_2fa: true
+  temp_token: string
+}
+
+export type LoginResponse = LoginSuccess | LoginTwoFactor
 
 export async function login(username: string, password: string): Promise<LoginResponse> {
   const form = new URLSearchParams({ username, password })
   const res = await client.post<LoginResponse>('/auth/login', form, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  })
+  return res.data
+}
+
+export async function verifyTotp(tempToken: string, code: string): Promise<LoginSuccess> {
+  const res = await client.post<LoginSuccess>('/auth/totp', {
+    temp_token: tempToken,
+    code,
   })
   return res.data
 }
@@ -56,4 +72,22 @@ export async function changePassword(currentPassword: string, newPassword: strin
     current_password: currentPassword,
     new_password: newPassword,
   })
+}
+
+export interface TotpSetupResponse {
+  secret: string
+  otpauth_url: string
+}
+
+export async function setupTotp(): Promise<TotpSetupResponse> {
+  const res = await client.post<TotpSetupResponse>('/auth/me/totp/setup')
+  return res.data
+}
+
+export async function enableTotp(code: string): Promise<void> {
+  await client.post('/auth/me/totp/enable', { code })
+}
+
+export async function disableTotp(): Promise<void> {
+  await client.post('/auth/me/totp/disable')
 }

@@ -10,6 +10,11 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class TwoFactorRequired(BaseModel):
+    requires_2fa: bool = True
+    temp_token: str
+
+
 class UserCreate(BaseModel):
     username: str
     email: EmailStr
@@ -29,6 +34,7 @@ class UserOut(BaseModel):
     is_admin: bool
     is_active: bool
     must_change_password: bool
+    totp_enabled: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -37,3 +43,17 @@ class UserOut(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class TotpSetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+
+
+class TotpVerifyRequest(BaseModel):
+    code: str
+
+
+class TotpLoginRequest(BaseModel):
+    temp_token: str
+    code: str
