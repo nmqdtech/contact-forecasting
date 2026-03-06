@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
-from app.schemas.channel import ChannelInfo, MonthlyObservation, ObservationPoint
+from app.schemas.channel import ChannelInfo, HourlyPoint, MonthlyObservation, ObservationPoint
 from app.services import channel_service
 
 router = APIRouter()
@@ -33,3 +33,12 @@ async def get_channel_monthly(channel: str, db: AsyncSession = Depends(get_db)):
     if not monthly:
         raise HTTPException(404, f"No data found for channel '{channel}'")
     return monthly
+
+
+@router.get("/{channel}/hourly", response_model=list[HourlyPoint])
+async def get_channel_hourly(channel: str, db: AsyncSession = Depends(get_db)):
+    """Return average volume by hour-of-day (only for hourly datasets)."""
+    pattern = await channel_service.get_hourly_pattern(db, channel)
+    if not pattern:
+        raise HTTPException(404, f"No hourly data found for channel '{channel}'")
+    return pattern

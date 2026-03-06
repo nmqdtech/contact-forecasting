@@ -114,6 +114,8 @@ async def run_training_job(
                 for obs in observations
             ]
         )
+        # Aggregate to daily totals — required for hourly data (24 rows/day → 1 row/day)
+        df = df.groupby(["Date", "Channel"], as_index=False)["Volume"].sum()
 
         # 2. Load holiday configs
         hol_result = await db.execute(

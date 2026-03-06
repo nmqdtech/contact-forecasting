@@ -26,6 +26,12 @@ export interface ChannelInfo {
   row_count: number
   date_min: string
   date_max: string
+  is_hourly: boolean
+}
+
+export interface HourlyPoint {
+  hour: number        // 0–23
+  avg_volume: number
 }
 
 export interface ObservationPoint {

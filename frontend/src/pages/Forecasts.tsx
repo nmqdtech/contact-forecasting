@@ -1,11 +1,17 @@
 import { useState } from 'react'
+import {
+  Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts'
 import Card from '../components/ui/Card'
 import BacktestChart from '../components/charts/BacktestChart'
 import ForecastChart from '../components/charts/ForecastChart'
 import MonthlyChart from '../components/charts/MonthlyChart'
-import { useChannels, useChannelData } from '../hooks/useChannels'
+import { useChannels, useChannelData, useChannelHourly } from '../hooks/useChannels'
 import { useBacktest, useForecast, useMonthlyForecast } from '../hooks/useForecasts'
 import { useAppStore } from '../store/useAppStore'
+
+const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+const fmtHour = (h: number) => h === 0 ? '12AM' : h < 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`
 
 export default function Forecasts() {
   const { data: channels } = useChannels()
@@ -16,11 +22,13 @@ export default function Forecasts() {
   const setChartSettings = useAppStore((s) => s.setChartSettings)
 
   const channel = activeChannel ?? channels?.[0]?.name ?? null
+  const isHourly = channels?.find((c) => c.name === channel)?.is_hourly ?? false
 
   const { data: forecast, isLoading: fcLoading } = useForecast(channel)
   const { data: monthly, isLoading: moLoading } = useMonthlyForecast(channel)
   const { data: backtest } = useBacktest(channel)
   const { data: channelObs } = useChannelData(channel)
+  const { data: hourlyPattern } = useChannelHourly(isHourly ? channel : null)
 
   if (!channels || channels.length === 0) {
     return (
@@ -149,6 +157,30 @@ export default function Forecasts() {
               </div>
             )}
           </Card>
+
+          {/* Intraday pattern (hourly data only) */}
+          {isHourly && hourlyPattern && hourlyPattern.length > 0 && (
+            <Card className="p-5">
+              <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4">
+                Intraday Pattern — {channel}
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                Average volume per hour across all historical days
+              </p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart
+                  data={hourlyPattern.map((p) => ({ hour: fmtHour(p.hour), vol: p.avg_volume }))}
+                  margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={1} />
+                  <YAxis tickFormatter={fmt} width={60} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number) => [fmt(v), 'Avg volume']} />
+                  <Bar dataKey="vol" fill="#2563EB" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
 
           {/* Backtest expander */}
           {backtest && (

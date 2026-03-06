@@ -9,6 +9,12 @@ class ChannelInfo(BaseModel):
     row_count: int
     date_min: date
     date_max: date
+    is_hourly: bool = False
+
+
+class HourlyPoint(BaseModel):
+    hour: int        # 0–23
+    avg_volume: float
 
 
 class ObservationPoint(BaseModel):

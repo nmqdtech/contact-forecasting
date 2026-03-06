@@ -12,9 +12,12 @@ import {
 } from 'recharts'
 import Card from '../components/ui/Card'
 import SeasonalityChart from '../components/charts/SeasonalityChart'
-import { useChannelData, useChannels } from '../hooks/useChannels'
+import { useChannelData, useChannelHourly, useChannels } from '../hooks/useChannels'
 import { useMonthlyForecast, useSeasonality } from '../hooks/useForecasts'
 import type { ObservationPoint } from '../types'
+
+const WEEK_OPTIONS = Array.from({ length: 53 }, (_, i) => i + 1)
+const fmtHour = (h: number) => h === 0 ? '12AM' : h < 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -165,9 +168,18 @@ export default function Analysis() {
   const [activeChannel, setActiveChannel] = useState<string | null>(null)
 
   const channel = activeChannel ?? channels?.[0]?.name ?? null
+  const isHourly = channels?.find((c) => c.name === channel)?.is_hourly ?? false
   const { data: seasonality, isLoading: seaLoading } = useSeasonality(channel)
   const { data: channelObs } = useChannelData(channel)
   const { data: monthly } = useMonthlyForecast(channel)
+  const { data: hourlyPattern } = useChannelHourly(isHourly ? channel : null)
+
+  // Years available in the loaded data (for dropdowns)
+  const availableYears = useMemo(() => {
+    const ys = new Set<string>()
+    for (const o of channelObs ?? []) ys.add(o.date.slice(0, 4))
+    return [...ys].sort().reverse()
+  }, [channelObs])
 
   // ── Section 1: Single-week comparison ──────────────────────────────────────
   const today = new Date()
@@ -305,36 +317,53 @@ export default function Analysis() {
             </h2>
 
             {/* Week pickers */}
-            <div className="flex flex-wrap gap-x-6 gap-y-3 mb-4 items-end">
+            <div className="flex flex-wrap gap-x-6 gap-y-3 mb-4 items-center">
               <div className="flex items-center gap-2">
                 <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#2563EB' }} />
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Week A</label>
-                <input
-                  type="number" value={parsedA?.year ?? today.getFullYear()} min={2000} max={2099}
+                <select
+                  value={parsedA?.year ?? today.getFullYear()}
                   onChange={(e) => setWeekA(`${e.target.value}-W${String(parsedA?.week ?? 1).padStart(2, '0')}`)}
-                  className="w-20 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-                />
-                <span className="text-xs text-slate-400">W</span>
-                <input
-                  type="number" value={parsedA?.week ?? 1} min={1} max={53}
-                  onChange={(e) => setWeekA(`${parsedA?.year ?? today.getFullYear()}-W${String(Number(e.target.value)).padStart(2, '0')}`)}
-                  className="w-14 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1 text-center"
-                />
+                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                >
+                  {[...new Set([String(parsedA?.year ?? today.getFullYear()), ...availableYears])].sort().reverse().map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+                <select
+                  value={parsedA?.week ?? 1}
+                  onChange={(e) => setWeekA(`${parsedA?.year ?? today.getFullYear()}-W${String(e.target.value).padStart(2, '0')}`)}
+                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                >
+                  {WEEK_OPTIONS.map((w) => (
+                    <option key={w} value={w}>W{String(w).padStart(2, '0')}</option>
+                  ))}
+                </select>
               </div>
+
+              <div className="hidden sm:block w-px h-6 bg-slate-200 dark:bg-slate-700 self-center" />
+
               <div className="flex items-center gap-2">
                 <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#94A3B8' }} />
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Week B</label>
-                <input
-                  type="number" value={parsedB?.year ?? today.getFullYear()} min={2000} max={2099}
+                <select
+                  value={parsedB?.year ?? today.getFullYear()}
                   onChange={(e) => setWeekB(`${e.target.value}-W${String(parsedB?.week ?? 1).padStart(2, '0')}`)}
-                  className="w-20 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-                />
-                <span className="text-xs text-slate-400">W</span>
-                <input
-                  type="number" value={parsedB?.week ?? 1} min={1} max={53}
-                  onChange={(e) => setWeekB(`${parsedB?.year ?? today.getFullYear()}-W${String(Number(e.target.value)).padStart(2, '0')}`)}
-                  className="w-14 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1 text-center"
-                />
+                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                >
+                  {[...new Set([String(parsedB?.year ?? today.getFullYear()), ...availableYears])].sort().reverse().map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+                <select
+                  value={parsedB?.week ?? 1}
+                  onChange={(e) => setWeekB(`${parsedB?.year ?? today.getFullYear()}-W${String(e.target.value).padStart(2, '0')}`)}
+                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                >
+                  {WEEK_OPTIONS.map((w) => (
+                    <option key={w} value={w}>W{String(w).padStart(2, '0')}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -384,14 +413,15 @@ export default function Analysis() {
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                   Year A
                 </label>
-                <input
-                  type="number"
+                <select
                   value={yearA}
-                  min={2000}
-                  max={2099}
                   onChange={(e) => setYearA(Number(e.target.value))}
-                  className="w-20 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-                />
+                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                >
+                  {[...new Set([String(yearA), ...availableYears])].sort().reverse().map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex items-center gap-2">
@@ -399,14 +429,15 @@ export default function Analysis() {
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                   Year B
                 </label>
-                <input
-                  type="number"
+                <select
                   value={yearB}
-                  min={2000}
-                  max={2099}
                   onChange={(e) => setYearB(Number(e.target.value))}
-                  className="w-20 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
-                />
+                  className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                >
+                  {[...new Set([String(yearB), ...availableYears])].sort().reverse().map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Divider */}
@@ -429,23 +460,25 @@ export default function Analysis() {
                   <label className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                     Weeks
                   </label>
-                  <input
-                    type="number"
+                  <select
                     value={rangeStart}
-                    min={1}
-                    max={53}
                     onChange={(e) => setRangeStart(Number(e.target.value))}
-                    className="w-14 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1 text-center"
-                  />
+                    className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                  >
+                    {WEEK_OPTIONS.map((w) => (
+                      <option key={w} value={w}>W{String(w).padStart(2, '0')}</option>
+                    ))}
+                  </select>
                   <span className="text-slate-400 text-sm">→</span>
-                  <input
-                    type="number"
+                  <select
                     value={rangeEnd}
-                    min={1}
-                    max={53}
                     onChange={(e) => setRangeEnd(Number(e.target.value))}
-                    className="w-14 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1 text-center"
-                  />
+                    className="rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-2 py-1"
+                  >
+                    {WEEK_OPTIONS.map((w) => (
+                      <option key={w} value={w}>W{String(w).padStart(2, '0')}</option>
+                    ))}
+                  </select>
                   <span className="text-xs text-slate-400">
                     ({activeWeeks.length} week{activeWeeks.length !== 1 ? 's' : ''})
                   </span>
@@ -669,6 +702,30 @@ export default function Analysis() {
               </div>
             )}
           </Card>
+
+          {/* ── SECTION 5: Intraday Pattern (hourly data only) ──────────────── */}
+          {isHourly && hourlyPattern && hourlyPattern.length > 0 && (
+            <Card className="p-5">
+              <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-2">
+                Intraday Pattern — {channel}
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                Average volume per hour across all historical days
+              </p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart
+                  data={hourlyPattern.map((p) => ({ hour: fmtHour(p.hour), vol: p.avg_volume }))}
+                  margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={1} />
+                  <YAxis tickFormatter={fmt} width={60} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number) => [fmt(v), 'Avg volume']} />
+                  <Bar dataKey="vol" fill="#2563EB" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
 
           {seasonality && (
             <Card className="p-5">
