@@ -10,6 +10,7 @@ class ChannelInfo(BaseModel):
     date_min: date
     date_max: date
     is_hourly: bool = False
+    has_aht: bool = False
 
 
 class HourlyPoint(BaseModel):

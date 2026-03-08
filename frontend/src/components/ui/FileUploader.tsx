@@ -66,6 +66,9 @@ export default function FileUploader({
         Daily: <strong>Date</strong>, <strong>Channel</strong>, <strong>Volume</strong> &nbsp;|&nbsp;
         Hourly: add <strong>Time</strong> column (HH:MM)
       </p>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+        Optional: <strong>AHT</strong> (avg handle time in seconds) &nbsp;&amp;&nbsp; <strong>Junior_Count</strong> or <strong>Junior_Ratio</strong>
+      </p>
     </div>
   )
 }

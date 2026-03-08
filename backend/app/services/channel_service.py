@@ -2,7 +2,7 @@
 Channel service: DB queries for channel observations.
 """
 import pandas as pd
-from sqlalchemy import func, select
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dataset import Dataset
@@ -19,6 +19,7 @@ async def get_channel_list(db: AsyncSession) -> list[ChannelInfo]:
             func.min(ChannelObservation.obs_date).label("date_min"),
             func.max(ChannelObservation.obs_date).label("date_max"),
             func.max(ChannelObservation.obs_hour).label("max_hour"),
+            func.max(cast(Dataset.has_aht, Integer)).label("has_aht"),
         )
         .join(Dataset, Dataset.id == ChannelObservation.dataset_id)
         .where(Dataset.is_active == True)  # noqa: E712
@@ -33,6 +34,7 @@ async def get_channel_list(db: AsyncSession) -> list[ChannelInfo]:
             date_min=row.date_min,
             date_max=row.date_max,
             is_hourly=row.max_hour is not None,
+            has_aht=bool(row.has_aht),
         )
         for row in rows
     ]

@@ -1,13 +1,20 @@
 import { useState } from 'react'
-import { Download, FileSpreadsheet, FileText } from 'lucide-react'
+import { Download, FileSpreadsheet, FileText, Zap } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
-import { downloadForecasts, downloadReport, downloadSummary } from '../api/forecasts'
+import { downloadForecasts, downloadIex, downloadReport, downloadSummary } from '../api/forecasts'
+import { useChannels } from '../hooks/useChannels'
 import { useSummary } from '../hooks/useForecasts'
 
 export default function Export() {
   const { data: summary, isLoading } = useSummary()
+  const { data: channels } = useChannels()
   const [downloading, setDownloading] = useState<string | null>(null)
+
+  // IEX settings
+  const [iexMinAht, setIexMinAht] = useState('')
+  const [iexMaxAht, setIexMaxAht] = useState('')
+  const [iexChannels, setIexChannels] = useState<string[]>([])
 
   async function handleDownload(key: string, fn: () => Promise<void>) {
     setDownloading(key)
@@ -18,16 +25,34 @@ export default function Export() {
     }
   }
 
+  function handleIexChannelToggle(name: string) {
+    setIexChannels((prev) =>
+      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
+    )
+  }
+
+  function handleDownloadIex() {
+    const min = iexMinAht !== '' ? parseFloat(iexMinAht) : null
+    const max = iexMaxAht !== '' ? parseFloat(iexMaxAht) : null
+    return handleDownload('iex', () =>
+      downloadIex({
+        channels: iexChannels.length > 0 ? iexChannels : undefined,
+        min_aht: isNaN(min as number) ? null : min,
+        max_aht: isNaN(max as number) ? null : max,
+      })
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Export</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Download forecast data and summary reports as Excel workbooks
+          Download forecast data and reports
         </p>
       </div>
 
-      {/* Download cards */}
+      {/* Standard downloads */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card className="p-5 flex flex-col gap-4">
           <div className="flex items-start gap-3">
@@ -90,6 +115,91 @@ export default function Export() {
         </Card>
       </div>
 
+      {/* NICE IEX Export */}
+      <Card className="p-5">
+        <div className="flex items-start gap-3 mb-4">
+          <Zap className="w-7 h-7 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">
+              NICE IEX Export
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+              30-minute interval CSV for NICE IEX WFM.
+              Skill · Date (MM/DD/YYYY) · Start Time · Contacts · AHT (seconds × 100).
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-5">
+          {/* AHT Constraints */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+              AHT Constraints (seconds)
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Min AHT</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 120"
+                  value={iexMinAht}
+                  onChange={(e) => setIexMinAht(e.target.value)}
+                  className="w-full rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-3 py-1.5"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Max AHT</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 900"
+                  value={iexMaxAht}
+                  onChange={(e) => setIexMaxAht(e.target.value)}
+                  className="w-full rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 px-3 py-1.5"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Channel filter */}
+          {channels && channels.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                Channels <span className="text-slate-400 font-normal">(leave empty for all)</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {channels.map((ch) => (
+                  <button
+                    key={ch.name}
+                    onClick={() => handleIexChannelToggle(ch.name)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      iexChannels.includes(ch.name)
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                    }`}
+                  >
+                    {ch.name}
+                    {ch.has_aht && (
+                      <span className="ml-1 opacity-75">AHT</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <Button
+          variant="primary"
+          className="justify-center"
+          loading={downloading === 'iex'}
+          onClick={handleDownloadIex}
+        >
+          <Download className="w-4 h-4" /> Download iex-forecast.csv
+        </Button>
+      </Card>
+
       {/* Summary table */}
       <Card className="p-5">
         <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4">
@@ -141,12 +251,8 @@ export default function Export() {
                     </td>
                     <td className="py-2 px-4">{row.peak_month}</td>
                     <td className="py-2 px-4">{row.trough_month}</td>
-                    <td className="py-2 pl-4 text-center">
-                      {row.has_holidays ? '✓' : '—'}
-                    </td>
-                    <td className="py-2 pl-4 text-center">
-                      {row.has_targets ? '✓' : '—'}
-                    </td>
+                    <td className="py-2 pl-4 text-center">{row.has_holidays ? '✓' : '—'}</td>
+                    <td className="py-2 pl-4 text-center">{row.has_targets ? '✓' : '—'}</td>
                   </tr>
                 ))}
               </tbody>

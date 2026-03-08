@@ -24,3 +24,5 @@ class ChannelObservation(Base):
     obs_date: Mapped[date] = mapped_column(Date, nullable=False)
     obs_hour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     volume: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    aht: Mapped[Optional[float]] = mapped_column(Numeric(10, 4), nullable=True)
+    junior_ratio: Mapped[Optional[float]] = mapped_column(Numeric(5, 4), nullable=True)

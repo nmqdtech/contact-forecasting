@@ -9,6 +9,7 @@ export interface DatasetOut {
   date_min: string
   date_max: string
   is_hourly: boolean
+  has_aht: boolean
 }
 
 export interface DatasetSummary {
@@ -27,6 +28,7 @@ export interface ChannelInfo {
   date_min: string
   date_max: string
   is_hourly: boolean
+  has_aht: boolean
 }
 
 export interface HourlyPoint {
@@ -77,6 +79,30 @@ export interface ForecastPoint {
   yhat: number
   yhat_lower: number
   yhat_upper: number
+  aht_yhat: number | null
+}
+
+// ── Hiring Waves ──────────────────────────────────────────────────────────────
+
+export interface HiringWave {
+  id: string
+  channel: string
+  start_date: string
+  end_date: string
+  junior_count: number
+  total_agents: number
+  junior_ratio: number
+  label: string | null
+  created_at: string
+}
+
+export interface HiringWaveCreate {
+  channel: string
+  start_date: string
+  end_date: string
+  junior_count: number
+  total_agents: number
+  label?: string
 }
 
 export interface ModelInfo {

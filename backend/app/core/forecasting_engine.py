@@ -29,6 +29,7 @@ class ContactForecaster:
         self.bank_holiday_config = {}
         self.monthly_volumes = {}
         self._backtest_cache: dict = {}  # channel → bt DataFrame
+        self.aht_models: dict = {}       # channel → {model, last_date, has_junior}
 
     # -------------------------------------------------------------------------
     # Data loading (legacy helper kept for compatibility)
@@ -518,6 +519,176 @@ class ContactForecaster:
                 if not wdata.empty:
                     rows.append({"Year": year, "Week": week, "Volume": wdata["Volume"].values[0]})
         return pd.DataFrame(rows)
+
+    # -------------------------------------------------------------------------
+    # AHT Model (Prophet with junior_ratio extra regressor)
+    # -------------------------------------------------------------------------
+
+    def train_aht_model(self, channel: str, aht_df: "pd.DataFrame") -> tuple[bool, str]:
+        """Train a Prophet model for AHT forecasting.
+
+        Args:
+            channel: Channel name.
+            aht_df: DataFrame with columns ['ds', 'y', 'junior_ratio'].
+                    y = AHT in seconds (positive values only).
+                    junior_ratio = 0.0–1.0 (fraction of junior agents).
+        """
+        from prophet import Prophet
+
+        df = aht_df.copy()
+        df = df[df["y"] > 0].copy()
+        if len(df) < 14:
+            return False, f"Insufficient AHT data for {channel} (need ≥ 14 days with non-zero AHT)"
+
+        df["junior_ratio"] = pd.to_numeric(df["junior_ratio"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+        has_junior = (df["junior_ratio"] > 0).any()
+
+        date_span = (df["ds"].max() - df["ds"].min()).days
+        enable_yearly = date_span >= 180
+
+        print(f"\n── AHT Training: {channel} ──")
+        print(f"  Rows: {len(df)}  |  yearly={enable_yearly}  |  has_junior={has_junior}")
+
+        model = Prophet(
+            yearly_seasonality=enable_yearly,
+            weekly_seasonality=True,
+            daily_seasonality=False,
+            seasonality_mode="additive",   # AHT is additive by nature
+            changepoint_prior_scale=0.05,
+            seasonality_prior_scale=5.0,
+            interval_width=0.95,
+        )
+        if has_junior:
+            model.add_regressor("junior_ratio", prior_scale=10.0, standardize=True)
+
+        try:
+            model.fit(df)
+        except Exception as exc:
+            return False, f"AHT model training failed for {channel}: {exc}"
+
+        self.aht_models[channel] = {
+            "model": model,
+            "last_date": df["ds"].max(),
+            "has_junior": has_junior,
+        }
+        print("  AHT Prophet model fitted successfully.")
+        return True, f"AHT model trained for {channel}"
+
+    def generate_aht_forecast(
+        self,
+        channel: str,
+        months_ahead: int = 15,
+        start_date=None,
+        future_junior_ratios: "dict[str, float] | None" = None,
+        min_aht: float | None = None,
+        max_aht: float | None = None,
+    ) -> tuple["pd.DataFrame | None", str]:
+        """Generate AHT forecast. Returns DataFrame with ['ds', 'aht_yhat']."""
+        if channel not in self.aht_models:
+            return None, f"AHT model not trained for {channel}"
+
+        md = self.aht_models[channel]
+        model = md["model"]
+
+        if start_date is None:
+            start_date = md["last_date"]
+
+        forecast_days = months_ahead * 30
+        forecast_dates = pd.date_range(
+            start=start_date + timedelta(days=1), periods=forecast_days, freq="D"
+        )
+        future_df = pd.DataFrame({"ds": forecast_dates})
+
+        if md["has_junior"]:
+            if future_junior_ratios:
+                future_df["junior_ratio"] = future_df["ds"].dt.strftime("%Y-%m-%d").map(
+                    lambda d: future_junior_ratios.get(d, 0.0)
+                ).fillna(0.0)
+            else:
+                future_df["junior_ratio"] = 0.0
+
+        try:
+            raw = model.predict(future_df)
+            result = raw[["ds", "yhat"]].copy()
+            result.rename(columns={"yhat": "aht_yhat"}, inplace=True)
+            result["aht_yhat"] = result["aht_yhat"].clip(lower=1.0)   # AHT ≥ 1s
+            if min_aht is not None:
+                result["aht_yhat"] = result["aht_yhat"].clip(lower=min_aht)
+            if max_aht is not None:
+                result["aht_yhat"] = result["aht_yhat"].clip(upper=max_aht)
+            return result, "AHT forecast generated"
+        except Exception as exc:
+            return None, f"AHT forecast failed for {channel}: {exc}"
+
+    # -------------------------------------------------------------------------
+    # 30-minute resampling for NICE IEX export
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def resample_to_30min(
+        volume_series: "pd.Series",
+        aht_series: "pd.Series",
+        hourly_weights: "dict[int, float] | None" = None,
+    ) -> "pd.DataFrame":
+        """Resample daily volume + AHT into 48 half-hour slots per day.
+
+        Args:
+            volume_series: pd.Series indexed by date (daily contact totals).
+            aht_series:    pd.Series indexed by date (daily AHT in seconds).
+            hourly_weights: dict {hour 0-23: fraction} summing to 1.0.
+                            Defaults to uniform (1/24 per hour).
+
+        Returns:
+            DataFrame with columns [ds (datetime), contacts (int), aht_seconds (float)].
+        """
+        if hourly_weights is None:
+            hourly_weights = {h: 1.0 / 24 for h in range(24)}
+
+        # Normalise weights to sum to 1
+        total_w = sum(hourly_weights.values()) or 1.0
+        weights = {h: w / total_w for h, w in hourly_weights.items()}
+
+        # Convert series to dict for O(1) lookup
+        vol_map = volume_series.to_dict()
+        aht_map = aht_series.to_dict() if aht_series is not None else {}
+
+        # Build adjacent-date AHT list for linear interpolation between days
+        dates = sorted(vol_map.keys())
+        aht_by_date: dict = {d: float(aht_map.get(d, 0.0) or 0.0) for d in dates}
+
+        rows = []
+        for i, date in enumerate(dates):
+            daily_vol = float(vol_map[date])
+            aht_today = aht_by_date.get(date, 0.0)
+
+            # For linear AHT interpolation: blend toward next day at end of day
+            if i < len(dates) - 1:
+                next_date = dates[i + 1]
+                aht_next = aht_by_date.get(next_date, aht_today)
+            else:
+                aht_next = aht_today
+
+            for hour in range(24):
+                hour_weight = weights.get(hour, 1.0 / 24)
+                hour_vol = daily_vol * hour_weight  # distributive split
+
+                # Split into two 30-min slots
+                for half in range(2):
+                    slot_dt = pd.Timestamp(date) + pd.Timedelta(hours=hour, minutes=half * 30)
+
+                    # Linear interpolation for AHT across the full day
+                    # fraction = slot index (0..47) / 48 blends today→tomorrow
+                    slot_idx = hour * 2 + half
+                    frac = slot_idx / 48.0
+                    aht_slot = aht_today * (1 - frac) + aht_next * frac if aht_today > 0 else 0.0
+
+                    rows.append({
+                        "ds": slot_dt,
+                        "contacts": max(0, round(hour_vol / 2)),
+                        "aht_seconds": round(aht_slot, 2),
+                    })
+
+        return pd.DataFrame(rows, columns=["ds", "contacts", "aht_seconds"])
 
     def get_available_countries(self):
         return {

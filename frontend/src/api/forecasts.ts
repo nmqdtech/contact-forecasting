@@ -59,3 +59,16 @@ export const downloadForecasts = (channels?: string[]) => {
 export const downloadSummary = () => fetchBlob('/exports/summary', 'summary.xlsx')
 
 export const downloadReport = () => fetchBlob('/exports/report', 'forecast-report.pdf')
+
+export const downloadIex = (params: {
+  channels?: string[]
+  min_aht?: number | null
+  max_aht?: number | null
+}) => {
+  const parts: string[] = []
+  params.channels?.forEach((c) => parts.push(`channels=${encodeURIComponent(c)}`))
+  if (params.min_aht != null) parts.push(`min_aht=${params.min_aht}`)
+  if (params.max_aht != null) parts.push(`max_aht=${params.max_aht}`)
+  const url = `/exports/iex${parts.length ? `?${parts.join('&')}` : ''}`
+  return fetchBlob(url, 'iex-forecast.csv')
+}

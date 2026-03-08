@@ -8,6 +8,7 @@ class ForecastPoint(BaseModel):
     yhat: float
     yhat_lower: float
     yhat_upper: float
+    aht_yhat: float | None = None
 
 
 class ModelInfo(BaseModel):

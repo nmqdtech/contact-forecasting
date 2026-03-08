@@ -20,3 +20,4 @@ class Dataset(Base):
     date_max: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_hourly: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    has_aht: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

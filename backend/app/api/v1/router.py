@@ -3,7 +3,7 @@ Aggregate all v1 sub-routers.
 """
 from fastapi import APIRouter, Depends
 
-from app.api.v1 import auth, channels, config, exports, forecasts, seasonality, summary, training, uploads
+from app.api.v1 import auth, channels, config, exports, forecasts, hiring_waves, seasonality, summary, training, uploads
 from app.core.security import get_current_user
 
 # Protected dependency applied to all non-auth routers
@@ -22,4 +22,5 @@ api_router.include_router(forecasts.router,   prefix="/forecasts",   tags=["fore
 api_router.include_router(seasonality.router, prefix="/seasonality", tags=["seasonality"], dependencies=_protected)
 api_router.include_router(config.router,      prefix="/config",      tags=["config"],      dependencies=_protected)
 api_router.include_router(summary.router,     prefix="/summary",     tags=["summary"],     dependencies=_protected)
-api_router.include_router(exports.router,     prefix="/exports",     tags=["exports"],     dependencies=_protected)
+api_router.include_router(exports.router,      prefix="/exports",      tags=["exports"],      dependencies=_protected)
+api_router.include_router(hiring_waves.router, prefix="/hiring-waves", tags=["hiring-waves"], dependencies=_protected)

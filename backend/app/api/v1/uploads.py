@@ -56,17 +56,27 @@ async def upload_dataset(
     if len(frames) > 1 and any(("Hour" in f.columns) != is_hourly for f in frames[1:]):
         raise HTTPException(422, "Cannot mix hourly and daily files in the same upload")
 
+    has_aht = any("AHT" in f.columns for f in frames)
+
     # Merge: sum volume for same (Channel, Date[, Hour]) across files
     if len(frames) == 1:
         merged = frames[0]
     else:
         raw = pd.concat(frames, ignore_index=True)
         group_cols = ["Channel", "Date", "Hour"] if is_hourly else ["Channel", "Date"]
-        merged = (
-            raw.groupby(group_cols, as_index=False)["Volume"]
-            .sum()
-            .sort_values(["Date"] + (["Hour"] if is_hourly else []))
-        )
+        agg_dict: dict = {"Volume": "sum"}
+        if has_aht:
+            # volume-weighted AHT: compute numerator then divide
+            if "AHT" in raw.columns:
+                raw["_vxaht"] = raw["Volume"] * raw["AHT"].fillna(0)
+                agg_dict["_vxaht"] = "sum"
+            if "Junior_Ratio" in raw.columns:
+                agg_dict["Junior_Ratio"] = "mean"
+        merged = raw.groupby(group_cols, as_index=False).agg(agg_dict)
+        if "_vxaht" in merged.columns:
+            merged["AHT"] = merged["_vxaht"] / merged["Volume"].replace(0, float("nan"))
+            merged.drop(columns=["_vxaht"], inplace=True)
+        merged = merged.sort_values(["Date"] + (["Hour"] if is_hourly else []))
 
     combined_filename = " + ".join(filenames) if len(filenames) > 1 else filenames[0]
     meta = extract_metadata(merged)
@@ -82,6 +92,7 @@ async def upload_dataset(
         date_max=meta["date_max"],
         is_active=True,
         is_hourly=is_hourly,
+        has_aht=has_aht,
     )
     db.add(dataset)
     await db.flush()  # populate dataset.id
@@ -89,6 +100,8 @@ async def upload_dataset(
     # Insert observations
     obs_list = []
     for _, row in merged.iterrows():
+        aht_val = float(row["AHT"]) if has_aht and "AHT" in row and pd.notna(row["AHT"]) else None
+        jr_val = float(row["Junior_Ratio"]) if "Junior_Ratio" in row and pd.notna(row.get("Junior_Ratio")) else None
         obs_list.append(
             ChannelObservation(
                 dataset_id=dataset.id,
@@ -96,6 +109,8 @@ async def upload_dataset(
                 obs_date=row["Date"].date(),
                 obs_hour=int(row["Hour"]) if is_hourly else None,
                 volume=float(row["Volume"]),
+                aht=aht_val,
+                junior_ratio=jr_val,
             )
         )
     db.add_all(obs_list)
@@ -111,6 +126,7 @@ async def upload_dataset(
         date_min=dataset.date_min,
         date_max=dataset.date_max,
         is_hourly=is_hourly,
+        has_aht=has_aht,
     )
 
 

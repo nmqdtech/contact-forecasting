@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, UserX } from 'lucide-react'
+import { ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, UserX, Users } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
@@ -8,6 +8,8 @@ import { useChannels } from '../hooks/useChannels'
 import { useConfig, useDeleteHoliday, useDeleteTargets, useSetHoliday, useSetTargets } from '../hooks/useConfig'
 import { setupTotp, enableTotp, disableTotp, listUsers, createUser, updateUser, deleteUser, type TotpSetupResponse, type UserOut } from '../api/auth'
 import { useAuthStore } from '../store/useAuthStore'
+import { listHiringWaves, createHiringWave, deleteHiringWave } from '../api/hiringWaves'
+import type { HiringWave } from '../types'
 
 const COUNTRIES: Record<string, string> = {
   GB: 'United Kingdom', US: 'United States', FR: 'France', DE: 'Germany',
@@ -82,6 +84,69 @@ export default function Settings() {
   }, [tgtChannel, tgtYear, config])
 
   const channelNames = channels?.map((c) => c.name) ?? []
+
+  // ── Hiring Waves state ────────────────────────────────────────────────────────
+  const [waveChannel, setWaveChannel] = useState('')
+  const [waveForm, setWaveForm] = useState({
+    label: '',
+    start_date: '',
+    end_date: '',
+    junior_count: '',
+    total_agents: '',
+  })
+  const [waveError, setWaveError] = useState('')
+
+  const { data: allWaves = [] } = useQuery<HiringWave[]>({
+    queryKey: ['hiring-waves'],
+    queryFn: () => listHiringWaves(),
+  })
+
+  const createWaveMut = useMutation({
+    mutationFn: createHiringWave,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hiring-waves'] })
+      setWaveForm({ label: '', start_date: '', end_date: '', junior_count: '', total_agents: '' })
+      setWaveError('')
+    },
+    onError: (err: any) => setWaveError(err?.response?.data?.detail || 'Failed to create hiring wave'),
+  })
+
+  const deleteWaveMut = useMutation({
+    mutationFn: deleteHiringWave,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hiring-waves'] }),
+  })
+
+  function handleCreateWave() {
+    if (!waveChannel || !waveForm.start_date || !waveForm.end_date || !waveForm.junior_count || !waveForm.total_agents) {
+      setWaveError('All fields except Label are required')
+      return
+    }
+    const junior_count = parseInt(waveForm.junior_count, 10)
+    const total_agents = parseInt(waveForm.total_agents, 10)
+    if (isNaN(junior_count) || isNaN(total_agents) || junior_count < 0 || total_agents <= 0) {
+      setWaveError('Junior count and total agents must be positive numbers')
+      return
+    }
+    if (junior_count > total_agents) {
+      setWaveError('Junior count cannot exceed total agents')
+      return
+    }
+    setWaveError('')
+    createWaveMut.mutate({
+      channel: waveChannel,
+      start_date: waveForm.start_date,
+      end_date: waveForm.end_date,
+      junior_count,
+      total_agents,
+      label: waveForm.label || undefined,
+    })
+  }
+
+  const wavesForChannel = waveChannel ? allWaves.filter((w) => w.channel === waveChannel) : []
+  const waveJuniorRatio =
+    waveForm.junior_count && waveForm.total_agents
+      ? (parseInt(waveForm.junior_count, 10) / parseInt(waveForm.total_agents, 10))
+      : null
 
   // ── 2FA state ─────────────────────────────────────────────────────────────────
   const setTotpEnabled = useAuthStore((s) => s.setTotpEnabled)
@@ -444,6 +509,126 @@ export default function Settings() {
               </div>
             ))}
           </div>
+        )}
+      </Card>
+
+      {/* ── Hiring Waves ──────────────────────────────────────────────────────── */}
+      <Card className="p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Users className="w-5 h-5 text-indigo-500" />
+          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Hiring Waves</h2>
+        </div>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">
+          Define periods when new junior agents are onboarded. The AHT model uses the junior ratio to
+          account for higher handle times during the learning curve.
+        </p>
+
+        <div className="space-y-4 mb-5">
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex-1 min-w-40">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Channel</label>
+              <select value={waveChannel} onChange={(e) => setWaveChannel(e.target.value)} className={inputCls}>
+                <option value="">Select channel…</option>
+                {channelNames.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="flex-1 min-w-40">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Label (optional)</label>
+              <input
+                type="text" placeholder="e.g. Q1 intake"
+                value={waveForm.label}
+                onChange={(e) => setWaveForm((v) => ({ ...v, label: e.target.value }))}
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex-1 min-w-36">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Start Date</label>
+              <input
+                type="date"
+                value={waveForm.start_date}
+                onChange={(e) => setWaveForm((v) => ({ ...v, start_date: e.target.value }))}
+                className={inputCls}
+              />
+            </div>
+            <div className="flex-1 min-w-36">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">End Date</label>
+              <input
+                type="date"
+                value={waveForm.end_date}
+                onChange={(e) => setWaveForm((v) => ({ ...v, end_date: e.target.value }))}
+                className={inputCls}
+              />
+            </div>
+            <div className="w-36">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Junior Agents</label>
+              <input
+                type="number" min="0" placeholder="e.g. 10"
+                value={waveForm.junior_count}
+                onChange={(e) => setWaveForm((v) => ({ ...v, junior_count: e.target.value }))}
+                className={inputCls}
+              />
+            </div>
+            <div className="w-36">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Total Agents</label>
+              <input
+                type="number" min="1" placeholder="e.g. 40"
+                value={waveForm.total_agents}
+                onChange={(e) => setWaveForm((v) => ({ ...v, total_agents: e.target.value }))}
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          {waveJuniorRatio !== null && !isNaN(waveJuniorRatio) && waveJuniorRatio >= 0 && waveJuniorRatio <= 1 && (
+            <p className="text-xs text-indigo-600 dark:text-indigo-400">
+              Junior ratio: <strong>{(waveJuniorRatio * 100).toFixed(1)}%</strong>
+            </p>
+          )}
+
+          {waveError && (
+            <p className="text-sm text-red-500">{waveError}</p>
+          )}
+
+          <Button onClick={handleCreateWave} loading={createWaveMut.isPending} disabled={!waveChannel}>
+            Add Hiring Wave
+          </Button>
+        </div>
+
+        {waveChannel && wavesForChannel.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+              Waves for {waveChannel}
+            </p>
+            {wavesForChannel
+              .sort((a, b) => a.start_date.localeCompare(b.start_date))
+              .map((w) => (
+                <div key={w.id} className="flex items-center justify-between rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2.5 gap-3">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700 dark:text-slate-300">
+                    <span>
+                      <strong>{w.start_date}</strong> → <strong>{w.end_date}</strong>
+                      {w.label && <span className="ml-2 text-slate-500 dark:text-slate-400">({w.label})</span>}
+                    </span>
+                    <span className="text-indigo-600 dark:text-indigo-400">
+                      {w.junior_count}/{w.total_agents} juniors ({(w.junior_ratio * 100).toFixed(0)}%)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => { if (confirm('Delete this hiring wave?')) deleteWaveMut.mutate(w.id) }}
+                    className="text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {waveChannel && wavesForChannel.length === 0 && (
+          <p className="text-sm text-slate-400">No hiring waves for {waveChannel} yet.</p>
         )}
       </Card>
     </div>

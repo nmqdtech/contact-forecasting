@@ -23,3 +23,4 @@ class Forecast(Base):
     yhat: Mapped[float | None] = mapped_column(Numeric(12, 2))
     yhat_lower: Mapped[float | None] = mapped_column(Numeric(12, 2))
     yhat_upper: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    aht_yhat: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)

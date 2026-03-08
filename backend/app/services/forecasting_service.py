@@ -15,10 +15,13 @@ from app.core.forecasting_engine import ContactForecaster
 from app.db.database import AsyncSessionLocal
 from app.models.backtest_result import BacktestResult
 from app.models.channel_config import ChannelConfig
+from app.models.dataset import Dataset
 from app.models.forecast import Forecast
+from app.models.hiring_wave import HiringWave
 from app.models.monthly_target import MonthlyTarget
 from app.models.observation import ChannelObservation
 from app.models.training_run import TrainingRun
+from app.services import hiring_wave_service
 from app.schemas.config import SummaryRow
 from app.schemas.forecast import (
     BacktestMetrics,
@@ -104,18 +107,39 @@ async def run_training_job(
             await db.commit()
             return
 
-        df = pd.DataFrame(
-            [
-                {
-                    "Date": pd.Timestamp(obs.obs_date),
-                    "Channel": obs.channel,
-                    "Volume": float(obs.volume),
-                }
-                for obs in observations
-            ]
-        )
-        # Aggregate to daily totals — required for hourly data (24 rows/day → 1 row/day)
-        df = df.groupby(["Date", "Channel"], as_index=False)["Volume"].sum()
+        # Detect if dataset has AHT data
+        ds_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+        dataset = ds_result.scalar_one_or_none()
+        dataset_has_aht = dataset.has_aht if dataset else False
+
+        df_rows = [
+            {
+                "Date": pd.Timestamp(obs.obs_date),
+                "Channel": obs.channel,
+                "Volume": float(obs.volume),
+                "AHT": float(obs.aht) if obs.aht is not None else None,
+                "Junior_Ratio": float(obs.junior_ratio) if obs.junior_ratio is not None else 0.0,
+            }
+            for obs in observations
+        ]
+        df = pd.DataFrame(df_rows)
+
+        # Volume-weighted AHT aggregation to daily
+        if dataset_has_aht and "AHT" in df.columns:
+            df["_vol_x_aht"] = df["Volume"] * df["AHT"].fillna(0)
+            agg_extra = {"_vol_x_aht": "sum", "Junior_Ratio": "mean"}
+            daily = df.groupby(["Date", "Channel"], as_index=False).agg(
+                {"Volume": "sum", **agg_extra}
+            )
+            total_vol = daily["Volume"].replace(0, float("nan"))
+            daily["AHT"] = daily["_vol_x_aht"] / total_vol
+            daily.drop(columns=["_vol_x_aht"], inplace=True)
+        else:
+            daily = df.groupby(["Date", "Channel"], as_index=False)["Volume"].sum()
+            daily["AHT"] = None
+            daily["Junior_Ratio"] = 0.0
+
+        df = daily
 
         # 2. Load holiday configs
         hol_result = await db.execute(
@@ -135,7 +159,16 @@ async def run_training_job(
         for t in tgt_result.scalars().all():
             monthly_targets.setdefault(t.channel, {})[t.month] = float(t.volume)
 
-        # 4. Set up forecaster
+        # 4. Load hiring waves for all channels
+        waves_result = await db.execute(
+            select(HiringWave).where(HiringWave.channel.in_(channels))
+        )
+        all_waves = waves_result.scalars().all()
+        waves_by_channel: dict[str, list] = {}
+        for w in all_waves:
+            waves_by_channel.setdefault(w.channel, []).append(w)
+
+        # 5. Set up forecaster
         forecaster = ContactForecaster()
         forecaster.historical_data = df
 
@@ -157,7 +190,7 @@ async def run_training_job(
                 )
                 await db.commit()
 
-                # Train (CPU-bound)
+                # Train volume model (CPU-bound)
                 success, msg = await asyncio.to_thread(forecaster.train_model, channel)
 
                 if not success:
@@ -174,7 +207,7 @@ async def run_training_job(
                 best_aic = float(md["aic"])
                 monthly_factors = {str(k): v for k, v in md["monthly_factors"].items()}
 
-                # Generate forecast (CPU-bound)
+                # Generate volume forecast (CPU-bound)
                 forecast_df, fmsg = await asyncio.to_thread(
                     forecaster.generate_forecast, channel, months_ahead
                 )
@@ -187,6 +220,35 @@ async def run_training_job(
                     )
                     await db.commit()
                     continue
+
+                # Train AHT model if data is available
+                aht_forecast_df = None
+                if dataset_has_aht:
+                    ch_data = df[df["Channel"] == channel].copy()
+                    aht_data = ch_data[ch_data["AHT"].notna()][["Date", "AHT", "Junior_Ratio"]].copy()
+                    if len(aht_data) >= 14:
+                        aht_train = aht_data.rename(columns={"Date": "ds", "AHT": "y", "Junior_Ratio": "junior_ratio"})
+                        aht_ok, aht_msg = await asyncio.to_thread(
+                            forecaster.train_aht_model, channel, aht_train
+                        )
+                        if aht_ok:
+                            # Build hiring-wave junior ratios for future dates
+                            channel_waves = waves_by_channel.get(channel, [])
+                            future_ratios: dict[str, float] = {}
+                            if channel_waves and forecast_df is not None:
+                                from app.services.hiring_wave_service import build_future_junior_ratios
+                                future_ratios = build_future_junior_ratios(
+                                    channel_waves, forecast_df["ds"].tolist()
+                                )
+
+                            aht_forecast_df, _ = await asyncio.to_thread(
+                                forecaster.generate_aht_forecast,
+                                channel,
+                                months_ahead,
+                                None,
+                                future_ratios or None,
+                            )
+                            print(f"  AHT forecast generated for {channel}")
 
                 # Backtest (CPU-bound)
                 bt_df = await asyncio.to_thread(forecaster.backtest, channel, _HOLDOUT_DAYS)
@@ -201,6 +263,14 @@ async def run_training_job(
                     .values(is_active=False)
                 )
 
+                # Build AHT lookup for fast join
+                aht_lookup: dict = {}
+                if aht_forecast_df is not None:
+                    aht_lookup = {
+                        row["ds"].date(): float(row["aht_yhat"])
+                        for _, row in aht_forecast_df.iterrows()
+                    }
+
                 # Persist forecast rows
                 forecast_rows = [
                     Forecast(
@@ -210,6 +280,7 @@ async def run_training_job(
                         yhat=float(row["yhat"]),
                         yhat_lower=float(row["yhat_lower"]),
                         yhat_upper=float(row["yhat_upper"]),
+                        aht_yhat=aht_lookup.get(row["ds"].date()),
                     )
                     for _, row in forecast_df.iterrows()
                 ]
@@ -373,6 +444,7 @@ async def get_forecast(db: AsyncSession, channel: str) -> ForecastResponse | Non
                 yhat=float(f.yhat or 0),
                 yhat_lower=float(f.yhat_lower or 0),
                 yhat_upper=float(f.yhat_upper or 0),
+                aht_yhat=float(f.aht_yhat) if f.aht_yhat is not None else None,
             )
             for f in forecasts
         ],

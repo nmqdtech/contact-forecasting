@@ -13,6 +13,7 @@ class DatasetOut(BaseModel):
     date_min: date
     date_max: date
     is_hourly: bool = False
+    has_aht: bool = False
 
     model_config = {"from_attributes": True}
 
