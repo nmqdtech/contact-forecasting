@@ -7,30 +7,46 @@ import type {
   SummaryRow,
 } from '../types'
 
-export const getForecast = async (channel: string): Promise<ForecastResponse> => {
+export const getForecast = async (
+  channel: string,
+  projectId?: string | null
+): Promise<ForecastResponse> => {
   const { data } = await client.get<ForecastResponse>(
-    `/forecasts/${encodeURIComponent(channel)}`
+    `/forecasts/${encodeURIComponent(channel)}`,
+    { params: projectId ? { project_id: projectId } : undefined }
   )
   return data
 }
 
-export const getMonthlyForecast = async (channel: string): Promise<MonthlyForecastResponse> => {
+export const getMonthlyForecast = async (
+  channel: string,
+  projectId?: string | null
+): Promise<MonthlyForecastResponse> => {
   const { data } = await client.get<MonthlyForecastResponse>(
-    `/forecasts/${encodeURIComponent(channel)}/monthly`
+    `/forecasts/${encodeURIComponent(channel)}/monthly`,
+    { params: projectId ? { project_id: projectId } : undefined }
   )
   return data
 }
 
-export const getBacktest = async (channel: string): Promise<BacktestResponse> => {
+export const getBacktest = async (
+  channel: string,
+  projectId?: string | null
+): Promise<BacktestResponse> => {
   const { data } = await client.get<BacktestResponse>(
-    `/forecasts/${encodeURIComponent(channel)}/backtest`
+    `/forecasts/${encodeURIComponent(channel)}/backtest`,
+    { params: projectId ? { project_id: projectId } : undefined }
   )
   return data
 }
 
-export const getSeasonality = async (channel: string): Promise<SeasonalityResponse> => {
+export const getSeasonality = async (
+  channel: string,
+  projectId?: string | null
+): Promise<SeasonalityResponse> => {
   const { data } = await client.get<SeasonalityResponse>(
-    `/seasonality/${encodeURIComponent(channel)}`
+    `/seasonality/${encodeURIComponent(channel)}`,
+    { params: projectId ? { project_id: projectId } : undefined }
   )
   return data
 }

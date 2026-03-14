@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, 
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+
 from app.db.database import Base
 
 
@@ -35,3 +36,10 @@ class TrainingRun(Base):
 
     # Only the most-recent successful run per channel is active
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Project scoping
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )

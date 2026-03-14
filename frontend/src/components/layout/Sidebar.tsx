@@ -2,6 +2,7 @@ import { Activity, BarChart3, Download, Home, LineChart, LogOut, Settings, X } f
 import { NavLink, useNavigate } from 'react-router-dom'
 import ThemeToggle from './ThemeToggle'
 import { useAuthStore } from '../../store/useAuthStore'
+import ProjectSelector from '../ui/ProjectSelector'
 
 const navItems = [
   { to: '/dashboard', icon: Home, label: 'Dashboard' },
@@ -57,6 +58,11 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Project selector */}
+        <div className="py-3 border-b border-white/10">
+          <ProjectSelector />
         </div>
 
         {/* Navigation */}

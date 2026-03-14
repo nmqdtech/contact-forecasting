@@ -13,8 +13,7 @@ import {
 import Card from '../components/ui/Card'
 import SeasonalityChart from '../components/charts/SeasonalityChart'
 import { useChannelData, useChannelHourly, useChannels } from '../hooks/useChannels'
-import { useMonthlyForecast, useSeasonality } from '../hooks/useForecasts'
-import type { ObservationPoint } from '../types'
+import { useForecast, useMonthlyForecast, useSeasonality } from '../hooks/useForecasts'
 
 const WEEK_OPTIONS = Array.from({ length: 53 }, (_, i) => i + 1)
 const fmtHour = (h: number) => h === 0 ? '12AM' : h < 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`
@@ -102,11 +101,10 @@ function parseWeekSet(raw: string): number[] {
 interface DayRow { day: string; A: number | null; B: number | null }
 
 function buildDailyComparison(
-  obs: ObservationPoint[],
+  map: Map<string, number>,
   wkA: { year: number; week: number } | null,
   wkB: { year: number; week: number } | null,
 ): DayRow[] {
-  const map   = new Map(obs.map((o) => [o.date, o.volume]))
   const datesA = wkA ? weekDates(wkA.year, wkA.week) : null
   const datesB = wkB ? weekDates(wkB.year, wkB.week) : null
   return DAY_NAMES.map((day, i) => ({
@@ -119,12 +117,11 @@ function buildDailyComparison(
 interface WeekRow { week: string; A: number; B: number }
 
 function buildMultiWeek(
-  obs: ObservationPoint[],
+  map: Map<string, number>,
   yearA: number,
   yearB: number,
   weeks: number[],
 ): WeekRow[] {
-  const map = new Map(obs.map((o) => [o.date, o.volume]))
   return weeks.map((w) => {
     const label  = `W${String(w).padStart(2, '0')}`
     const totalA = weekDates(yearA, w).reduce((s, d) => s + (map.get(toDateStr(d)) ?? 0), 0)
@@ -171,15 +168,27 @@ export default function Analysis() {
   const isHourly = channels?.find((c) => c.name === channel)?.is_hourly ?? false
   const { data: seasonality, isLoading: seaLoading } = useSeasonality(channel)
   const { data: channelObs } = useChannelData(channel)
+  const { data: forecast } = useForecast(channel)
   const { data: monthly } = useMonthlyForecast(channel)
   const { data: hourlyPattern } = useChannelHourly(isHourly ? channel : null)
 
-  // Years available in the loaded data (for dropdowns)
+  // Unified data map: historical observations + forecast data merged by date
+  const allDataMap = useMemo<Map<string, number>>(() => {
+    const m = new Map<string, number>()
+    for (const o of channelObs ?? []) m.set(o.date, o.volume)
+    // Forecast data fills in dates not covered by historical observations
+    for (const f of forecast?.data ?? []) {
+      if (!m.has(f.date)) m.set(f.date, f.yhat)
+    }
+    return m
+  }, [channelObs, forecast])
+
+  // Years available in historical + forecast data (for dropdowns)
   const availableYears = useMemo(() => {
     const ys = new Set<string>()
-    for (const o of channelObs ?? []) ys.add(o.date.slice(0, 4))
+    for (const date of allDataMap.keys()) ys.add(date.slice(0, 4))
     return [...ys].sort().reverse()
-  }, [channelObs])
+  }, [allDataMap])
 
   // ── Section 1: Single-week comparison ──────────────────────────────────────
   const today = new Date()
@@ -197,9 +206,9 @@ export default function Analysis() {
   const parsedB = useMemo(() => parseWeekInput(weekB), [weekB])
 
   const dailyData = useMemo<DayRow[]>(() => {
-    if (!channelObs) return []
-    return buildDailyComparison(channelObs, parsedA, parsedB)
-  }, [channelObs, parsedA, parsedB])
+    if (allDataMap.size === 0) return []
+    return buildDailyComparison(allDataMap, parsedA, parsedB)
+  }, [allDataMap, parsedA, parsedB])
 
   const totalA = dailyData.reduce((s, r) => s + (r.A ?? 0), 0)
   const totalB = dailyData.reduce((s, r) => s + (r.B ?? 0), 0)
@@ -223,9 +232,9 @@ export default function Analysis() {
   }, [multiMode, rangeStart, rangeEnd, customInput])
 
   const multiWeekData = useMemo<WeekRow[]>(() => {
-    if (!channelObs || activeWeeks.length === 0) return []
-    return buildMultiWeek(channelObs, yearA, yearB, activeWeeks)
-  }, [channelObs, yearA, yearB, activeWeeks])
+    if (allDataMap.size === 0 || activeWeeks.length === 0) return []
+    return buildMultiWeek(allDataMap, yearA, yearB, activeWeeks)
+  }, [allDataMap, yearA, yearB, activeWeeks])
 
   const multiTotalA = multiWeekData.reduce((s, r) => s + r.A, 0)
   const multiTotalB = multiWeekData.reduce((s, r) => s + r.B, 0)
@@ -379,7 +388,7 @@ export default function Analysis() {
             </div>
 
             {/* Daily chart */}
-            {channelObs ? (
+            {allDataMap.size > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={dailyData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
@@ -394,7 +403,7 @@ export default function Analysis() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-slate-400 dark:text-slate-500">No observation data available.</p>
+              <p className="text-sm text-slate-400 dark:text-slate-500">No data available — upload data and train a model first.</p>
             )}
           </Card>
 
@@ -521,7 +530,7 @@ export default function Analysis() {
             {/* Multi-week chart */}
             {multiWeekData.length === 0 ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">
-                {channelObs ? 'No weeks selected or data unavailable.' : 'No observation data available.'}
+                {allDataMap.size > 0 ? 'No weeks selected or data unavailable.' : 'No data available — upload data and train a model first.'}
               </p>
             ) : (
               <ResponsiveContainer

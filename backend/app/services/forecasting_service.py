@@ -54,6 +54,13 @@ async def start_training_job(
     job_id = uuid.uuid4()
     run_ids: dict[str, uuid.UUID] = {}
 
+    # Resolve project_id from the dataset
+    ds_result = await db.execute(
+        select(Dataset).where(Dataset.id == request.dataset_id)
+    )
+    dataset = ds_result.scalar_one_or_none()
+    project_id = dataset.project_id if dataset else None
+
     for channel in request.channels:
         run = TrainingRun(
             job_id=job_id,
@@ -61,6 +68,7 @@ async def start_training_job(
             dataset_id=request.dataset_id,
             months_ahead=request.months_ahead,
             status="pending",
+            project_id=project_id,
         )
         db.add(run)
         await db.flush()  # populate run.id
@@ -75,6 +83,7 @@ async def start_training_job(
         channels=list(request.channels),
         months_ahead=request.months_ahead,
         run_ids=run_ids,
+        project_id=project_id,
     )
     return job_id
 
@@ -85,6 +94,7 @@ async def run_training_job(
     channels: list[str],
     months_ahead: int,
     run_ids: dict[str, uuid.UUID],
+    project_id: uuid.UUID | None = None,
 ) -> None:
     """Background task: train models, persist forecasts and backtest results."""
     async with AsyncSessionLocal() as db:
@@ -254,14 +264,18 @@ async def run_training_job(
                 bt_df = await asyncio.to_thread(forecaster.backtest, channel, _HOLDOUT_DAYS)
                 bt_metrics = forecaster.get_backtest_metrics(channel, _HOLDOUT_DAYS)
 
-                # Deactivate previous active runs for this channel
-                await db.execute(
+                # Deactivate previous active runs for this channel (same project)
+                deactivate_q = (
                     update(TrainingRun)
                     .where(TrainingRun.channel == channel)
                     .where(TrainingRun.is_active == True)  # noqa: E712
                     .where(TrainingRun.id != run_id)
-                    .values(is_active=False)
                 )
+                if project_id is not None:
+                    deactivate_q = deactivate_q.where(
+                        TrainingRun.project_id == project_id
+                    )
+                await db.execute(deactivate_q.values(is_active=False))
 
                 # Build AHT lookup for fast join
                 aht_lookup: dict = {}
@@ -406,12 +420,17 @@ async def get_job_status(db: AsyncSession, job_id: uuid.UUID) -> TrainingJobStat
 # ---------------------------------------------------------------------------
 
 
-async def get_forecast(db: AsyncSession, channel: str) -> ForecastResponse | None:
-    run_result = await db.execute(
+async def get_forecast(
+    db: AsyncSession, channel: str, project_id: uuid.UUID | None = None
+) -> ForecastResponse | None:
+    query = (
         select(TrainingRun)
         .where(TrainingRun.channel == channel)
         .where(TrainingRun.is_active == True)  # noqa: E712
     )
+    if project_id is not None:
+        query = query.where(TrainingRun.project_id == project_id)
+    run_result = await db.execute(query)
     run = run_result.scalar_one_or_none()
     if run is None:
         return None
@@ -452,13 +471,16 @@ async def get_forecast(db: AsyncSession, channel: str) -> ForecastResponse | Non
 
 
 async def get_monthly_forecast(
-    db: AsyncSession, channel: str
+    db: AsyncSession, channel: str, project_id: uuid.UUID | None = None
 ) -> MonthlyForecastResponse | None:
-    run_result = await db.execute(
+    query = (
         select(TrainingRun)
         .where(TrainingRun.channel == channel)
         .where(TrainingRun.is_active == True)  # noqa: E712
     )
+    if project_id is not None:
+        query = query.where(TrainingRun.project_id == project_id)
+    run_result = await db.execute(query)
     run = run_result.scalar_one_or_none()
     if run is None:
         return None
@@ -527,12 +549,17 @@ async def get_monthly_forecast(
     )
 
 
-async def get_backtest(db: AsyncSession, channel: str) -> BacktestResponse | None:
-    run_result = await db.execute(
+async def get_backtest(
+    db: AsyncSession, channel: str, project_id: uuid.UUID | None = None
+) -> BacktestResponse | None:
+    query = (
         select(TrainingRun)
         .where(TrainingRun.channel == channel)
         .where(TrainingRun.is_active == True)  # noqa: E712
     )
+    if project_id is not None:
+        query = query.where(TrainingRun.project_id == project_id)
+    run_result = await db.execute(query)
     run = run_result.scalar_one_or_none()
     if run is None:
         return None
@@ -566,12 +593,17 @@ async def get_backtest(db: AsyncSession, channel: str) -> BacktestResponse | Non
     )
 
 
-async def get_seasonality(db: AsyncSession, channel: str) -> SeasonalityResponse | None:
-    run_result = await db.execute(
+async def get_seasonality(
+    db: AsyncSession, channel: str, project_id: uuid.UUID | None = None
+) -> SeasonalityResponse | None:
+    query = (
         select(TrainingRun)
         .where(TrainingRun.channel == channel)
         .where(TrainingRun.is_active == True)  # noqa: E712
     )
+    if project_id is not None:
+        query = query.where(TrainingRun.project_id == project_id)
+    run_result = await db.execute(query)
     run = run_result.scalar_one_or_none()
     if run is None:
         return None

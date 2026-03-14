@@ -21,6 +21,7 @@ class HourlyPoint(BaseModel):
 class ObservationPoint(BaseModel):
     date: date
     volume: float
+    is_actuals: bool = False
 
 
 class MonthlyObservation(BaseModel):

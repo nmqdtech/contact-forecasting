@@ -1,7 +1,8 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Integer, String, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -21,3 +22,9 @@ class Dataset(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_hourly: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     has_aht: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_actuals: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

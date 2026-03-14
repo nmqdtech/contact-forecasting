@@ -29,30 +29,37 @@ export default function ForecastChart({ data, historical }: Props) {
   const textColor = theme === 'dark' ? '#94A3B8' : '#64748B'
   const tooltipBg = theme === 'dark' ? '#1E293B' : '#FFFFFF'
   const tooltipBorder = theme === 'dark' ? '#334155' : '#E2E8F0'
+  const gapColor = theme === 'dark' ? '#64748B' : '#94A3B8'
+  const actualsColor = '#059669'
+
+  const todayStr = new Date().toISOString().slice(0, 10)
 
   // Build merged chart array
   const merged: Record<string, unknown>[] = []
 
   if (historical && historical.length > 0) {
     historical.forEach((d) => {
-      merged.push({
-        date: d.date,
-        historical: d.volume,
-      })
+      if (d.is_actuals) {
+        merged.push({ date: d.date, actuals: d.volume })
+      } else {
+        merged.push({ date: d.date, historical: d.volume })
+      }
     })
   }
 
   data.forEach((d) => {
+    const isFuture = d.date >= todayStr
     merged.push({
       date: d.date,
-      yhat: d.yhat,
+      yhat: isFuture ? d.yhat : undefined,
+      yhat_gap: isFuture ? undefined : d.yhat,
       lower: d.yhat_lower,
       ci_band: Math.max(0, d.yhat_upper - d.yhat_lower),
     })
   })
 
   const lastHistDate = historical && historical.length > 0
-    ? historical[historical.length - 1].date
+    ? historical.filter((d) => !d.is_actuals).slice(-1)[0]?.date ?? null
     : null
 
   // Determine tick interval based on total data points
@@ -87,7 +94,9 @@ export default function ForecastChart({ data, historical }: Props) {
           labelStyle={{ color: textColor }}
           formatter={(value: number, name: string) => {
             if (name === 'historical') return [fmt(value), 'Historical']
+            if (name === 'actuals') return [fmt(value), 'Actuals']
             if (name === 'yhat') return [fmt(value), 'Forecast']
+            if (name === 'yhat_gap') return [fmt(value), 'Gap forecast']
             if (name === 'lower') return [fmt(value), 'Lower 95%']
             if (name === 'ci_band') return [fmt(value), 'CI Width']
             return [fmt(value), name]
@@ -128,7 +137,34 @@ export default function ForecastChart({ data, historical }: Props) {
           </Line>
         )}
 
-        {/* Forecast line */}
+        {/* Actuals line (uploaded actuals for gap period) */}
+        {historical && historical.some((d) => d.is_actuals) && (
+          <Line
+            dataKey="actuals"
+            stroke={actualsColor}
+            strokeWidth={1.8}
+            dot={false}
+            name="actuals"
+            isAnimationActive={false}
+            connectNulls={false}
+          >
+            {showDataLabels && <LabelList dataKey="actuals" position="top" style={{ fontSize: 9, fill: actualsColor }} />}
+          </Line>
+        )}
+
+        {/* Gap forecast line (between last hist date and today) — dashed, muted */}
+        <Line
+          dataKey="yhat_gap"
+          stroke={gapColor}
+          strokeWidth={1.8}
+          strokeDasharray="5 3"
+          dot={false}
+          name="yhat_gap"
+          isAnimationActive={false}
+          connectNulls={false}
+        />
+
+        {/* Future forecast line */}
         <Line
           dataKey="yhat"
           stroke={forecastColor}
@@ -141,15 +177,22 @@ export default function ForecastChart({ data, historical }: Props) {
           {showDataLabels && <LabelList dataKey="yhat" position="top" style={{ fontSize: 9, fill: textColor }} />}
         </Line>
 
-        {/* Divider between historical and forecast */}
-        {lastHistDate && (
+        {/* Divider: end of historical data */}
+        {lastHistDate && lastHistDate !== todayStr && (
           <ReferenceLine
             x={lastHistDate}
-            stroke="#64748B"
+            stroke="#475569"
             strokeDasharray="4 2"
-            label="Today"
           />
         )}
+
+        {/* Today reference line */}
+        <ReferenceLine
+          x={todayStr}
+          stroke="#3B82F6"
+          strokeDasharray="4 2"
+          strokeWidth={1.5}
+        />
       </ComposedChart>
     </ResponsiveContainer>
   )

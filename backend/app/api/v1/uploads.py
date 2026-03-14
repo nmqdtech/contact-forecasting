@@ -4,7 +4,7 @@ Upload routes: POST /uploads, GET /uploads, DELETE /uploads/reset, DELETE /uploa
 import uuid
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,8 @@ ALLOWED_EXTENSIONS = (".xlsx", ".xls", ".csv")
 @router.post("", response_model=DatasetOut, status_code=status.HTTP_201_CREATED)
 async def upload_dataset(
     files: list[UploadFile] = File(...),
+    project_id: uuid.UUID | None = Query(default=None),
+    is_actuals: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
 ):
     """Parse one or more Excel/CSV files, merge them, persist observations, and activate the dataset."""
@@ -81,8 +83,12 @@ async def upload_dataset(
     combined_filename = " + ".join(filenames) if len(filenames) > 1 else filenames[0]
     meta = extract_metadata(merged)
 
-    # Deactivate all previous datasets
-    await db.execute(update(Dataset).values(is_active=False))
+    # For regular uploads: deactivate previous non-actuals datasets (scoped to project)
+    if not is_actuals:
+        deactivate_query = update(Dataset).where(Dataset.is_actuals == False)  # noqa: E712
+        if project_id is not None:
+            deactivate_query = deactivate_query.where(Dataset.project_id == project_id)
+        await db.execute(deactivate_query.values(is_active=False))
 
     # Create new dataset record
     dataset = Dataset(
@@ -93,6 +99,8 @@ async def upload_dataset(
         is_active=True,
         is_hourly=is_hourly,
         has_aht=has_aht,
+        project_id=project_id,
+        is_actuals=is_actuals,
     )
     db.add(dataset)
     await db.flush()  # populate dataset.id
@@ -127,6 +135,8 @@ async def upload_dataset(
         date_max=dataset.date_max,
         is_hourly=is_hourly,
         has_aht=has_aht,
+        project_id=str(project_id) if project_id else None,
+        is_actuals=is_actuals,
     )
 
 

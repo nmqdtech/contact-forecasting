@@ -10,6 +10,20 @@ export interface DatasetOut {
   date_max: string
   is_hourly: boolean
   has_aht: boolean
+  project_id: string | null
+  is_actuals: boolean
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+}
+
+export interface ProjectCreate {
+  name: string
+  description?: string
 }
 
 export interface DatasetSummary {
@@ -39,6 +53,7 @@ export interface HourlyPoint {
 export interface ObservationPoint {
   date: string
   volume: number
+  is_actuals?: boolean
 }
 
 export interface MonthlyObservation {

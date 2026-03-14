@@ -23,7 +23,7 @@ const statusVariant = (s: string) => {
 
 export default function Dashboard() {
   const qc = useQueryClient()
-  const { activeDatasetId, activeJobId, setActiveDatasetId, setActiveJobId } = useAppStore()
+  const { activeDatasetId, activeJobId, setActiveDatasetId, setActiveJobId, activeProjectId } = useAppStore()
 
   const [selectedChannels, setSelectedChannels] = useState<string[]>([])
   const [monthsAhead, setMonthsAhead] = useState(15)
@@ -47,7 +47,7 @@ export default function Dashboard() {
 
   // File upload mutation
   const uploadMutation = useMutation({
-    mutationFn: (files: File[]) => uploadFiles(files),
+    mutationFn: (files: File[]) => uploadFiles(files, { projectId: activeProjectId }),
     onSuccess: (data) => {
       setUploadInfo(data)
       setUploadError(null)
