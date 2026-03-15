@@ -61,7 +61,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         {/* Project selector */}
-        <div className="py-3 border-b border-white/10">
+        <div className="pt-2 pb-1 border-b border-white/10">
           <ProjectSelector />
         </div>
 
