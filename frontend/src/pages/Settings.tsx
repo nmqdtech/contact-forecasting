@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, UserX, Users } from 'lucide-react'
+import { Fingerprint, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, UserX, Users } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
+import { startRegistration } from '@simplewebauthn/browser'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { useChannels } from '../hooks/useChannels'
 import { useConfig, useDeleteHoliday, useDeleteTargets, useSetHoliday, useSetTargets } from '../hooks/useConfig'
 import { setupTotp, enableTotp, disableTotp, listUsers, createUser, updateUser, deleteUser, type TotpSetupResponse, type UserOut } from '../api/auth'
+import { passkeyRegisterBegin, passkeyRegisterComplete, listPasskeys, deletePasskey } from '../api/passkeys'
 import { useAuthStore } from '../store/useAuthStore'
 import { listHiringWaves, createHiringWave, deleteHiringWave } from '../api/hiringWaves'
-import type { HiringWave } from '../types'
+import type { HiringWave, PasskeyOut } from '../types'
 
 const COUNTRIES: Record<string, string> = {
   GB: 'United Kingdom', US: 'United States', FR: 'France', DE: 'Germany',
@@ -174,6 +176,42 @@ export default function Settings() {
     try { await disableTotp(); setTotpEnabled(false) }
     catch { setTotpError('Failed to disable 2FA') }
     finally { setTotpLoading(false) }
+  }
+
+  // ── Passkeys state ────────────────────────────────────────────────────────────
+  const [passkeyName, setPasskeyName] = useState('')
+  const [passkeyError, setPasskeyError] = useState('')
+  const [passkeyAdding, setPasskeyAdding] = useState(false)
+  const [showPasskeyNameInput, setShowPasskeyNameInput] = useState(false)
+
+  const { data: passkeys = [], refetch: refetchPasskeys } = useQuery<PasskeyOut[]>({
+    queryKey: ['passkeys'],
+    queryFn: listPasskeys,
+  })
+
+  const deletePasskeyMut = useMutation({
+    mutationFn: deletePasskey,
+    onSuccess: () => refetchPasskeys(),
+  })
+
+  const handleAddPasskey = async () => {
+    const name = passkeyName.trim() || 'Passkey'
+    setPasskeyError('')
+    setPasskeyAdding(true)
+    try {
+      const { options, challenge_token } = await passkeyRegisterBegin()
+      const credential = await startRegistration({ optionsJSON: options as any })
+      await passkeyRegisterComplete({ credential, challenge_token, name })
+      refetchPasskeys()
+      setShowPasskeyNameInput(false)
+      setPasskeyName('')
+    } catch (err: any) {
+      if (err?.name !== 'NotAllowedError') {
+        setPasskeyError(err?.response?.data?.detail ?? 'Failed to add passkey')
+      }
+    } finally {
+      setPasskeyAdding(false)
+    }
   }
 
   const handleSetHoliday = () => {
@@ -395,6 +433,79 @@ export default function Settings() {
               </div>
             ) : (
               <Button loading={totpLoading} onClick={handleSetupTotp}>Set up 2FA</Button>
+            )}
+          </div>
+
+          {/* ── Passkeys ─────────────────────────────────────────────────────── */}
+          <div className="mt-5 border-t border-slate-200 dark:border-slate-700 pt-5">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <Fingerprint className="w-4 h-4 text-blue-500" />
+                Passkeys
+              </h3>
+              {!showPasskeyNameInput && (
+                <button
+                  onClick={() => setShowPasskeyNameInput(true)}
+                  className="text-xs text-blue-500 hover:text-blue-400 font-medium transition-colors"
+                >
+                  + Add passkey
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+              Sign in with Touch ID, Face ID, or a hardware security key — no password needed.
+            </p>
+
+            {passkeyError && (
+              <p className="mb-2 text-xs text-red-500">{passkeyError}</p>
+            )}
+
+            {showPasskeyNameInput && (
+              <div className="mb-3 flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={passkeyName}
+                  onChange={(e) => setPasskeyName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddPasskey(); if (e.key === 'Escape') setShowPasskeyNameInput(false) }}
+                  placeholder='Name (e.g. "MacBook Touch ID")'
+                  className={inputCls + ' flex-1 text-xs'}
+                />
+                <Button onClick={handleAddPasskey} loading={passkeyAdding}>
+                  Register
+                </Button>
+                <Button variant="secondary" onClick={() => { setShowPasskeyNameInput(false); setPasskeyName('') }}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+
+            {passkeys.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500">No passkeys registered yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {passkeys.map((pk) => (
+                  <div
+                    key={pk.id}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Fingerprint className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <span className="text-slate-800 dark:text-slate-200 font-medium">{pk.name}</span>
+                      <span className="text-xs text-slate-400">
+                        {new Date(pk.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Remove passkey "${pk.name}"?`)) deletePasskeyMut.mutate(pk.id)
+                      }}
+                      className="text-slate-400 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </Card>

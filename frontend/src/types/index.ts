@@ -26,6 +26,12 @@ export interface ProjectCreate {
   description?: string
 }
 
+export interface PasskeyOut {
+  id: string
+  name: string
+  created_at: string
+}
+
 export interface DatasetSummary {
   dataset_id: string
   filename: string

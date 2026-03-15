@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Activity } from 'lucide-react'
+import { Activity, Fingerprint } from 'lucide-react'
+import { startAuthentication } from '@simplewebauthn/browser'
 import { login, verifyTotp, getMe } from '../api/auth'
+import { passkeyAuthBegin, passkeyAuthComplete } from '../api/passkeys'
 import { useAuthStore } from '../store/useAuthStore'
 
 export default function Login() {
@@ -13,6 +15,30 @@ export default function Login() {
   const [tempToken, setTempToken] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [passkeyLoading, setPasskeyLoading] = useState(false)
+
+  async function handlePasskeyLogin() {
+    setError('')
+    setPasskeyLoading(true)
+    try {
+      const { options, challenge_token } = await passkeyAuthBegin()
+      const credential = await startAuthentication({ optionsJSON: options as any })
+      const { access_token } = await passkeyAuthComplete({ credential, challenge_token })
+      localStorage.setItem(
+        'forecasting-auth',
+        JSON.stringify({ state: { token: access_token, user: null } })
+      )
+      const user = await getMe()
+      setAuth(access_token, user)
+      navigate('/dashboard', { replace: true })
+    } catch (err: any) {
+      if (err?.name !== 'NotAllowedError') {
+        setError(err?.response?.data?.detail ?? 'Passkey sign-in failed')
+      }
+    } finally {
+      setPasskeyLoading(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -160,10 +186,26 @@ export default function Login() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || passkeyLoading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
             >
               {loading ? 'Signing in…' : 'Sign in'}
+            </button>
+
+            <div className="relative flex items-center gap-3">
+              <div className="flex-1 h-px bg-slate-700" />
+              <span className="text-xs text-slate-500">or</span>
+              <div className="flex-1 h-px bg-slate-700" />
+            </div>
+
+            <button
+              type="button"
+              onClick={handlePasskeyLogin}
+              disabled={passkeyLoading || loading}
+              className="w-full flex items-center justify-center gap-2 border border-slate-600 hover:border-slate-400 disabled:opacity-60 text-slate-300 hover:text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
+            >
+              <Fingerprint className="w-4 h-4" />
+              {passkeyLoading ? 'Waiting for passkey…' : 'Sign in with passkey'}
             </button>
           </form>
         )}

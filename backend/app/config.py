@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
 
+    # WebAuthn / Passkeys
+    WEBAUTHN_RP_ID: str = "localhost"
+    WEBAUTHN_RP_NAME: str = "Contact Forecasting"
+    WEBAUTHN_ORIGIN: str = "http://localhost:5173"
+
     # Observability
     SENTRY_DSN: str = ""
     DEBUG: bool = False

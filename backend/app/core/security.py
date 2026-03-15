@@ -42,6 +42,26 @@ def create_2fa_temp_token(user_id: str) -> str:
     )
 
 
+def create_webauthn_challenge_token(challenge_b64url: str, user_id: str | None = None) -> str:
+    """Short-lived token (5 min) carrying a WebAuthn challenge for begin→complete round-trip."""
+    data: dict = {"wac": challenge_b64url}
+    if user_id:
+        data["sub"] = user_id
+    return create_access_token(data, expires_delta=timedelta(minutes=5))
+
+
+def verify_webauthn_challenge_token(token: str) -> tuple[str | None, str | None]:
+    """Returns (challenge_b64url, user_id_or_None). Returns (None, None) on failure."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        challenge = payload.get("wac")
+        if not challenge:
+            return None, None
+        return challenge, payload.get("sub")
+    except JWTError:
+        return None, None
+
+
 def verify_2fa_temp_token(token: str) -> str | None:
     """Returns user_id string if token is valid 2fa_pending scope, else None."""
     try:

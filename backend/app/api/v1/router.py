@@ -3,7 +3,7 @@ Aggregate all v1 sub-routers.
 """
 from fastapi import APIRouter, Depends
 
-from app.api.v1 import auth, channels, config, exports, forecasts, hiring_waves, projects, seasonality, summary, training, uploads
+from app.api.v1 import auth, channels, config, exports, forecasts, hiring_waves, passkeys, projects, seasonality, summary, training, uploads
 from app.core.security import get_current_user
 
 # Protected dependency applied to all non-auth routers
@@ -11,8 +11,9 @@ _protected = [Depends(get_current_user)]
 
 api_router = APIRouter()
 
-# Auth routes — no protection
+# Auth routes — no protection (passkeys has mixed public/protected routes handled internally)
 api_router.include_router(auth.router,        prefix="/auth",        tags=["auth"])
+api_router.include_router(passkeys.router,    prefix="/auth",        tags=["passkeys"])
 
 # Protected routes
 api_router.include_router(uploads.router,     prefix="/uploads",     tags=["uploads"],     dependencies=_protected)
