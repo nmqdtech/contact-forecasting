@@ -135,6 +135,26 @@ class ContactForecaster:
             }
         )
 
+    def _build_quarter_starts_df(self, min_year: int, max_year: int) -> pd.DataFrame:
+        """Return Prophet-style holidays DataFrame for quarter-start events (Jan/Apr/Jul/Oct 1).
+
+        These recurring spikes/dips (e.g. Q4 start = Oct 1) are sharp and isolated,
+        which Fourier series cannot capture. Adding them as named holidays lets Prophet
+        learn the per-event effect from history.
+        """
+        rows = []
+        for year in range(min_year, max_year + 1):
+            for month in (1, 4, 7, 10):
+                rows.append(
+                    {
+                        "holiday": "quarter_start",
+                        "ds": pd.Timestamp(f"{year}-{month:02d}-01"),
+                        "lower_window": 0,
+                        "upper_window": 2,  # capture knock-on effect days 0–2
+                    }
+                )
+        return pd.DataFrame(rows)
+
     def _apply_monthly_distribution(self, forecast: pd.DataFrame, channel: str) -> pd.DataFrame:
         monthly_targets = self.monthly_volumes[channel]
         forecast = forecast.copy()
@@ -218,15 +238,25 @@ class ContactForecaster:
         country_code = self.bank_holiday_config.get(channel)
 
         # Build holidays for Prophet (teach model about holiday dips/spikes)
+        date_span_days = (channel_data["Date"].max() - channel_data["Date"].min()).days
+        min_data_year = prophet_df["ds"].dt.year.min()
+        max_data_year = prophet_df["ds"].dt.year.max() + 2
+
         holidays_df = None
+        # Always include quarter-start events (Jan/Apr/Jul/Oct 1) so Prophet learns
+        # the Oct 1 / Q-start spike effect from history instead of averaging it away
+        qs_df = self._build_quarter_starts_df(min_data_year, max_data_year)
         if apply_holidays and country_code:
-            min_year = prophet_df["ds"].dt.year.min()
-            max_year = prophet_df["ds"].dt.year.max() + 2
-            holidays_df = self._build_holidays_df(country_code, min_year, max_year)
+            bh_df = self._build_holidays_df(country_code, min_data_year, max_data_year)
+            holidays_df = pd.concat([bh_df, qs_df], ignore_index=True) if bh_df is not None else qs_df
+        else:
+            holidays_df = qs_df
 
         # Decide whether to enable yearly seasonality (need ≥ 6 months)
-        date_span_days = (channel_data["Date"].max() - channel_data["Date"].min()).days
         enable_yearly = date_span_days >= 180
+        # Use higher Fourier order for yearly seasonality when ≥ 2 years of data,
+        # giving the model finer resolution to capture intra-year spikes.
+        yearly_fourier_order = 20 if date_span_days >= 730 else 10
         # For short datasets use additive mode — multiplicative needs scale data
         seasonality_mode = "multiplicative" if date_span_days >= 180 else "additive"
 
@@ -234,13 +264,13 @@ class ContactForecaster:
         print(
             f"  Closed days  : {[['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d] for d in sorted(closed_dows)]}"
         )
-        print(f"  Holidays     : {country_code or 'None'}")
-        print(f"  Yearly seas. : {enable_yearly}  ({date_span_days} days of data)")
+        print(f"  Holidays     : {country_code or 'None'} + quarter_starts")
+        print(f"  Yearly seas. : {enable_yearly}  ({date_span_days} days, fourier_order={yearly_fourier_order})")
         print(f"  Mode         : {seasonality_mode}")
 
         def _build_prophet(mode: str) -> "Prophet":
             m = Prophet(
-                yearly_seasonality=enable_yearly,
+                yearly_seasonality=False,   # added manually below with custom fourier_order
                 weekly_seasonality=True,
                 daily_seasonality=False,
                 seasonality_mode=mode,
@@ -250,6 +280,12 @@ class ContactForecaster:
                 interval_width=0.95,
                 holidays=holidays_df,
             )
+            if enable_yearly:
+                m.add_seasonality(
+                    name="yearly",
+                    period=365.25,
+                    fourier_order=yearly_fourier_order,
+                )
             if custom_seasonality and date_span_days >= 60:
                 m.add_seasonality(name="monthly", period=30.5, fourier_order=5)
             return m
@@ -376,11 +412,21 @@ class ContactForecaster:
         date_span = (train_df["ds"].max() - train_df["ds"].min()).days
         enable_yearly = date_span >= 180
         enable_monthly = date_span >= 60
+        bt_yearly_fourier = 20 if date_span >= 730 else 10
         bt_mode = "multiplicative" if date_span >= 180 else "additive"
+
+        # Add quarter-start events to backtest holidays too
+        bt_min_year = train_df["ds"].dt.year.min()
+        bt_max_year = test_df["ds"].dt.year.max() + 1
+        qs_df_bt = self._build_quarter_starts_df(bt_min_year, bt_max_year)
+        if holidays_df is not None:
+            holidays_df = pd.concat([holidays_df, qs_df_bt], ignore_index=True)
+        else:
+            holidays_df = qs_df_bt
 
         def _build_bt(mode: str):
             m = Prophet(
-                yearly_seasonality=enable_yearly,
+                yearly_seasonality=False,
                 weekly_seasonality=True,
                 daily_seasonality=False,
                 seasonality_mode=mode,
@@ -390,6 +436,8 @@ class ContactForecaster:
                 interval_width=0.95,
                 holidays=holidays_df,
             )
+            if enable_yearly:
+                m.add_seasonality(name="yearly", period=365.25, fourier_order=bt_yearly_fourier)
             if enable_monthly:
                 m.add_seasonality(name="monthly", period=30.5, fourier_order=5)
             return m

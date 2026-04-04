@@ -15,24 +15,13 @@ export default function ProjectSelector() {
   const [newName, setNewName] = useState('')
   const [createError, setCreateError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const hasAutoCreated = useRef(false)
 
-  const { data: projects = [] } = useQuery<Project[]>({
+  const { data: projects = [], isLoading: projectsLoading } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: listProjects,
     staleTime: 30_000,
   })
-
-  // Auto-select first project on load
-  useEffect(() => {
-    if (!activeProjectId && projects.length > 0) {
-      setActiveProjectId(projects[0].id)
-    }
-  }, [projects, activeProjectId, setActiveProjectId])
-
-  // Focus input when create row appears
-  useEffect(() => {
-    if (creating) inputRef.current?.focus()
-  }, [creating])
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['channels'] })
@@ -72,6 +61,30 @@ export default function ProjectSelector() {
     },
   })
 
+  // Auto-select first project when active selection is missing/invalid
+  useEffect(() => {
+    if (projects.length === 0) return
+    if (!activeProjectId || !projects.find((p) => p.id === activeProjectId)) {
+      setActiveProjectId(projects[0].id)
+    }
+  }, [projects, activeProjectId, setActiveProjectId])
+
+  // Auto-create a "Default" project for first-time users (only after query has settled)
+  useEffect(() => {
+    if (hasAutoCreated.current || projectsLoading) return
+    if (projects.length === 0) {
+      hasAutoCreated.current = true
+      createMut.mutate({ name: 'Default' })
+    }
+  // createMut.mutate is stable; only re-run when loading state or projects list changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, projectsLoading])
+
+  // Focus name input when create row appears
+  useEffect(() => {
+    if (creating) inputRef.current?.focus()
+  }, [creating])
+
   const handleSwitch = (id: string) => {
     if (id === activeProjectId) { setOpen(false); return }
     setActiveProjectId(id)
@@ -96,7 +109,7 @@ export default function ProjectSelector() {
       >
         <FolderOpen className="w-4 h-4 flex-shrink-0 text-blue-400" />
         <span className="flex-1 truncate text-left font-medium">
-          {activeProject?.name ?? 'Select project'}
+          {activeProject?.name ?? 'Loading…'}
         </span>
         <ChevronDown
           className={`w-3.5 h-3.5 flex-shrink-0 text-slate-500 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}

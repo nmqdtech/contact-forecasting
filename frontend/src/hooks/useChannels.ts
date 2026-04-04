@@ -7,6 +7,7 @@ export function useChannels() {
   return useQuery({
     queryKey: ['channels', projectId],
     queryFn: () => getChannels(projectId),
+    enabled: !!projectId,
     staleTime: 30_000,
   })
 }
@@ -16,7 +17,7 @@ export function useChannelData(channel: string | null) {
   return useQuery({
     queryKey: ['channel-data', channel, projectId],
     queryFn: () => getChannelData(channel!, projectId),
-    enabled: !!channel,
+    enabled: !!channel && !!projectId,
     staleTime: 60_000,
   })
 }
@@ -26,7 +27,7 @@ export function useChannelHourly(channel: string | null) {
   return useQuery({
     queryKey: ['channel-hourly', channel, projectId],
     queryFn: () => getChannelHourly(channel!, projectId),
-    enabled: !!channel,
+    enabled: !!channel && !!projectId,
     staleTime: 60_000,
   })
 }

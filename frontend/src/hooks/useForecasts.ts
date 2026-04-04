@@ -13,7 +13,7 @@ export function useForecast(channel: string | null) {
   return useQuery({
     queryKey: ['forecast', channel, projectId],
     queryFn: () => getForecast(channel!, projectId),
-    enabled: !!channel,
+    enabled: !!channel && !!projectId,
     staleTime: 60_000,
   })
 }
@@ -23,7 +23,7 @@ export function useMonthlyForecast(channel: string | null) {
   return useQuery({
     queryKey: ['forecast-monthly', channel, projectId],
     queryFn: () => getMonthlyForecast(channel!, projectId),
-    enabled: !!channel,
+    enabled: !!channel && !!projectId,
     staleTime: 60_000,
   })
 }
@@ -33,7 +33,7 @@ export function useBacktest(channel: string | null) {
   return useQuery({
     queryKey: ['backtest', channel, projectId],
     queryFn: () => getBacktest(channel!, projectId),
-    enabled: !!channel,
+    enabled: !!channel && !!projectId,
     staleTime: 60_000,
   })
 }
@@ -43,7 +43,7 @@ export function useSeasonality(channel: string | null) {
   return useQuery({
     queryKey: ['seasonality', channel, projectId],
     queryFn: () => getSeasonality(channel!, projectId),
-    enabled: !!channel,
+    enabled: !!channel && !!projectId,
     staleTime: 60_000,
   })
 }
